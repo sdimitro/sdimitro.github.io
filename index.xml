@@ -2,19 +2,19 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>Core Dump</title>
-    <link>http://localhost:1313/</link>
+    <link>http://sdimitro.github.io/</link>
     <description>Recent content on Core Dump</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <lastBuildDate>Mon, 22 Dec 2014 12:00:00 -0600</lastBuildDate>
-    <atom:link href="http://localhost:1313/index.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="http://sdimitro.github.io/index.xml" rel="self" type="application/rss+xml" />
     
     <item>
       <title>Notes on Testing: Legacy code in illumos-core</title>
-      <link>http://localhost:1313/post/nuking-legacy-code/</link>
+      <link>http://sdimitro.github.io/post/nuking-legacy-code/</link>
       <pubDate>Mon, 22 Dec 2014 12:00:00 -0600</pubDate>
       
-      <guid>http://localhost:1313/post/nuking-legacy-code/</guid>
+      <guid>http://sdimitro.github.io/post/nuking-legacy-code/</guid>
       <description>&lt;p&gt;Last Friday, Robert Mustacchi shared &lt;a href=&#34;http://illumos.org/books/dev/&#34;&gt;a great guide&lt;/a&gt; that new developers
 can reference when working with the illumos build system. As I was
 reading it, I came across the section on &lt;a href=&#34;http://illumos.org/books/dev/workflow.html#testing&#34;&gt;testing changes&lt;/a&gt; in the basic
@@ -68,10 +68,10 @@ The above information is now &lt;a href=&#34;https://github.com/illumos/dev-guid
     
     <item>
       <title>Scripting GDB</title>
-      <link>http://localhost:1313/post/scripting-gdb/</link>
+      <link>http://sdimitro.github.io/post/scripting-gdb/</link>
       <pubDate>Sat, 01 Feb 2014 12:00:00 -0600</pubDate>
       
-      <guid>http://localhost:1313/post/scripting-gdb/</guid>
+      <guid>http://sdimitro.github.io/post/scripting-gdb/</guid>
       <description>
 
 &lt;h3 id=&#34;motivation:5d4565ec1e468f912455baf1d127cbcc&#34;&gt;Motivation&lt;/h3&gt;
