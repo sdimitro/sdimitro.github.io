@@ -1,0 +1,11 @@
+markdown: kramdown
+highlighter: rouge
+future: true
+
+kramdown:
+  extensions: [smart, autolink]
+
+name: Core Dump
+description: Journals of a scientist/engineer in the making
+url: http://sdimitro.github.com
+
