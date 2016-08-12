@@ -14,9 +14,9 @@ summary: Printing ZFS's read() code path with DTrace
 
 I've been reading up a lot on ZFS recently. As a part
 of this study, I'm planning to watch a video where Matt
-Ahrens goes through the [read and write codepaths on ZFS]
-(https://www.youtube.com/watch?v=ptY6-K78McY). Before
-watching it though, I thought it would be cool if I went
+Ahrens goes through the
+[read and write codepaths on ZFS](https://www.youtube.com/watch?v=ptY6-K78McY).
+Before watching it though, I thought it would be cool if I went
 through the code by myself. Then, hopefully, any questions
 that I have while reading the code, will be addressed in the
 video code review.
