@@ -18,7 +18,7 @@ Ahrens goes through the
 [read and write codepaths on ZFS](https://www.youtube.com/watch?v=ptY6-K78McY).
 Before watching it though, I thought it would be cool if I went
 through the code by myself. Then, hopefully, any questions
-that I have while reading the code, will be addressed in the
+that I have while reading the code will be addressed in the
 video code review.
 
 As I am becoming more familiar with illumos and its internals
@@ -30,12 +30,12 @@ while reading the code.
 
 I quickly hacked a script together to achieve my aforementioned
 objective. One thing that I had to consider was whether I should
-also include `plockstat` provider and include all the locking
+also include the `plockstat` provider and include all the locking
 points on my map. I decided not to do that. Even though I'm
 planning to understand the reason behind using the different locks
-on the critical points that I will be reviewing, my objective
-is not to read the implementation of this mechanisms. Furthermore,
-their output on my map would probably distract me from my goal.
+on the critical points that I will encounter, my objective
+is not to read the implementation of these mechanisms. Furthermore,
+their output on my map would probably be distracting.
 
 The easiest way that I could think of issuing a clean read()
 system call was by using `cat` on a file. Therefore, my DTrace
