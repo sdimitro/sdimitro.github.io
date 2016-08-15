@@ -14,8 +14,9 @@ tags:
 Last Friday, Robert Mustacchi shared
 [a great guide](http://illumos.org/books/dev/) that new developers
 can reference when working with the illumos build system. As I was
-reading it, I came across the section on [testing changes]
-(http://illumos.org/books/dev/workflow.html#testing) in the basic
+reading it, I came across the section on
+[testing changes](http://illumos.org/books/dev/workflow.html#testing)
+in the basic
 workflow chapter. In that section Mustacchi gave some general guidelines
 on how a developer should decide the way in which their changes should be
 tested.
