@@ -46,7 +46,7 @@ take care of most of them for us. The main thing I was
 unsure of was the following: how does one go about making
 an application that maps all (or at least most) locations
 to a time zone and a Daylight Saving Time (DST) schedule,
-if applicable, at any momment.
+if applicable, at any moment.
 
 As an example, let's consider a clock that shows the
 current time in Chicago(US) and Athens(Greece). Athens
