@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" href="https://sdimitro.github.io//css/style.css">
+	<title>The journey of a ZFS read() call in 1 min [μ] | Core Dump</title>
+	<link href='https://fonts.googleapis.com/css?family=Inconsolata:400,700' rel='stylesheet' type='text/css'>
+	<script type="text/javascript" src="https://use.typekit.com/skm6yij.js"></script>
+	<script type="text/javascript">try{Typekit.load();}catch(e){}</script>
+
+<div class="header">
+	<h3><a href="https://sdimitro.github.io/">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>The journey of a ZFS read() call in 1 min [μ]
+			<div class="normal">
+				<div class="when"> Posted on August 11, 2016.</div>
+			</div>
+		</h1>
+   <div class="content">
+     
+
+<h3 id="motivation-objective">Motivation &amp; Objective</h3>
+
+<p>I&rsquo;ve been reading up a lot on ZFS recently. As a part
+of this study, I&rsquo;m planning to watch a video where Matt
+Ahrens goes through the
+<a href="https://www.youtube.com/watch?v=ptY6-K78McY">read and write codepaths on ZFS</a>.
+Before watching it though, I thought it would be cool if I went
+through the code by myself. Then, hopefully, any questions
+that I have while reading the code will be addressed in the
+video code review.</p>
+
+<p>As I am becoming more familiar with illumos and its internals
+, I decided to use DTrace. My main objective was to create a
+map of the codepath so I can have a better sense of direction
+while reading the code.</p>
+
+<h3 id="the-d-script">The D script</h3>
+
+<p>I quickly hacked a script together to achieve my aforementioned
+objective. One thing that I had to consider was whether I should
+also include the <code>plockstat</code> provider and include all the locking
+points on my map. I decided not to do that. Even though I&rsquo;m
+planning to understand the reason behind using the different locks
+on the critical points that I will encounter, my objective
+is not to read the implementation of these mechanisms. Furthermore,
+their output on my map would probably be distracting.</p>
+
+<p>The easiest way that I could think of issuing a clean read()
+system call was by using <code>cat</code> on a file. Therefore, my DTrace
+script tries to detect only the first read() call issued by
+a <code>cat</code> command, so its output is hopefully reproducable.</p>
+
+<pre><code>syscall::read:entry
+/execname == &quot;cat&quot;/
+{
+    self-&gt;t = 1;
+}
+
+syscall::read:return
+/self-&gt;t/
+{
+    self-&gt;t = 0;
+    exit(0);
+}
+
+sdt:::, fbt:::entry, fbt:::return
+/self-&gt;t/
+{
+}
+</code></pre>
+
+<h3 id="result">Result</h3>
+
+<p>If you are curious what the output looks like check
+the Appendix section. illumos kernel devs won&rsquo;t find
+anything surprising or out of the ordinary here. The
+main point here is that in very little time I was
+able to create a map of the path taken by a system
+call. I&rsquo;m just barely scratching the surface here
+in the number of aids that DTrace can provide me
+while I am trying to understand a system that is
+being developed for more than a decade. Off to read
+some code now!</p>
+
+<h3 id="appendix-output">Appendix: Output</h3>
+
+<p>The following output was produced in my OmniOS
+VM running on vagrant provided by OmniTI. I also
+used the <code>-F</code> option of the dtrace utility for a
+better visualization of the path.</p>
+
+<pre><code>CPU FUNCTION                                 
+  0  -&gt; read32                                
+  0    -&gt; read                                
+  0      -&gt; getf                              
+  0        -&gt; set_active_fd                   
+  0        &lt;- set_active_fd                   
+  0        -&gt; set_active_fd                   
+  0        &lt;- set_active_fd                   
+  0      &lt;- getf                              
+  0      -&gt; nbl_need_check                    
+  0      &lt;- nbl_need_check                    
+  0      -&gt; fop_rwlock                        
+  0        -&gt; fs_rwlock                       
+  0        &lt;- fs_rwlock                       
+  0      &lt;- fop_rwlock                        
+  0      -&gt; fop_read                          
+  0        -&gt; crgetmapped                     
+  0        &lt;- crgetmapped                     
+  0        -&gt; zfs_read                        
+  0          -&gt; rrm_enter_read                
+  0            -&gt; rrw_enter_read              
+  0              -&gt; rrw_enter_read_impl       
+  0              &lt;- rrw_enter_read_impl       
+  0            &lt;- rrw_enter_read              
+  0          &lt;- rrm_enter_read                
+  0          -&gt; zfs_range_lock                
+  0            -&gt; kmem_alloc                  
+  0              -&gt; kmem_cache_alloc          
+  0              &lt;- kmem_cache_alloc          
+  0            &lt;- kmem_alloc                  
+  0            -&gt; avl_numnodes                
+  0            &lt;- avl_numnodes                
+  0            -&gt; avl_add                     
+  0              -&gt; avl_find                  
+  0              &lt;- avl_find                  
+  0              -&gt; avl_insert                
+  0              &lt;- avl_insert                
+  0            &lt;- avl_add                     
+  0          &lt;- zfs_range_lock                
+  0          -&gt; vn_has_cached_data            
+  0          &lt;- vn_has_cached_data            
+  0          -&gt; sa_get_db                     
+  0          &lt;- sa_get_db                     
+  0          -&gt; dmu_read_uio_dbuf             
+  0            -&gt; zrl_add_impl                
+  0            &lt;- zrl_add_impl                
+  0            -&gt; dmu_read_uio_dnode          
+  0              -&gt; dmu_buf_hold_array_by_dnode 
+  0                -&gt; kmem_zalloc             
+  0                  -&gt; kmem_cache_alloc      
+  0                  &lt;- kmem_cache_alloc      
+  0                &lt;- kmem_zalloc             
+  0                -&gt; zio_root                
+  0                  -&gt; zio_null              
+  0                    -&gt; zio_create          
+  0                      -&gt; kmem_cache_alloc  
+  0                      &lt;- kmem_cache_alloc  
+  0                      -&gt; mutex_init        
+  0                      &lt;- mutex_init        
+  0                      -&gt; cv_init           
+  0                      &lt;- cv_init           
+  0                      -&gt; list_create       
+  0                      &lt;- list_create       
+  0                      -&gt; list_create       
+  0                      &lt;- list_create       
+  0                      -&gt; zfs_zone_zio_init 
+  0                      &lt;- zfs_zone_zio_init 
+  0                    &lt;- zio_create          
+  0                  &lt;- zio_null              
+  0                &lt;- zio_root                
+  0                -&gt; dbuf_whichblock         
+  0                &lt;- dbuf_whichblock         
+  0                -&gt; dbuf_hold               
+  0                  -&gt; dbuf_hold_level       
+  0                    -&gt; dbuf_hold_impl      
+  0                      -&gt; dbuf_find         
+  0                        -&gt; dbuf_hash       
+  0                        &lt;- dbuf_hash       
+  0                      &lt;- dbuf_find         
+  0                      -&gt; arc_buf_add_ref   
+  0                        -&gt; buf_hash        
+  0                        &lt;- buf_hash        
+  0                        -&gt; add_reference   
+  0                          -&gt; arc_buf_type  
+  0                          &lt;- arc_buf_type  
+  0                          -&gt; multilist_remove 
+  0                            -&gt; arc_state_multilist_index_func 
+  0                              -&gt; buf_hash  
+  0                              &lt;- buf_hash  
+  0                              -&gt; multilist_get_num_sublists 
+  0                              &lt;- multilist_get_num_sublists 
+  0                            &lt;- arc_state_multilist_index_func 
+  0                           | multilist_remove:multilist-remove 
+  0                           | multilist_remove:multilist-remove 
+  0                            -&gt; mutex_owned 
+  0                            &lt;- mutex_owned 
+  0                            -&gt; multilist_sublist_remove 
+  0                              -&gt; list_remove 
+  0                              &lt;- list_remove 
+  0                            &lt;- multilist_sublist_remove 
+  0                          &lt;- multilist_remove 
+  0                        &lt;- add_reference   
+  0                       | arc_buf_add_ref:arc-hit 
+  0                       | arc_buf_add_ref:arc-hit 
+  0                        -&gt; arc_access      
+  0                          -&gt; ddi_get_lbolt 
+  0                            -&gt; lbolt_event_driven 
+  0                              -&gt; gethrtime 
+  0                                -&gt; tsc_gethrtime 
+  0                                &lt;- tsc_gethrtime 
+  0                              &lt;- gethrtime 
+  0                            &lt;- lbolt_event_driven 
+  0                          &lt;- ddi_get_lbolt 
+  0                        &lt;- arc_access      
+  0                      &lt;- arc_buf_add_ref   
+  0                    &lt;- dbuf_hold_impl      
+  0                  &lt;- dbuf_hold_level       
+  0                &lt;- dbuf_hold               
+  0                -&gt; dbuf_read               
+  0                  -&gt; zrl_add_impl          
+  0                  &lt;- zrl_add_impl          
+  0                  -&gt; zrl_remove            
+  0                  &lt;- zrl_remove            
+  0                &lt;- dbuf_read               
+  0                -&gt; dmu_zfetch              
+  0                &lt;- dmu_zfetch              
+  0                -&gt; zio_wait                
+  0                  -&gt; zio_execute           
+  0                    -&gt; zio_ready           
+  0                      -&gt; zio_wait_for_children 
+  0                      &lt;- zio_wait_for_children 
+  0                      -&gt; zio_wait_for_children 
+  0                      &lt;- zio_wait_for_children 
+  0                      -&gt; zio_walk_parents  
+  0                        -&gt; list_head       
+  0                        &lt;- list_head       
+  0                      &lt;- zio_walk_parents  
+  0                    &lt;- zio_ready           
+  0                    -&gt; zio_done            
+  0                      -&gt; zio_wait_for_children 
+  0                      &lt;- zio_wait_for_children 
+  0                      -&gt; zio_wait_for_children 
+  0                      &lt;- zio_wait_for_children 
+  0                      -&gt; zio_wait_for_children 
+  0                      &lt;- zio_wait_for_children 
+  0                      -&gt; zio_wait_for_children 
+  0                      &lt;- zio_wait_for_children 
+  0                      -&gt; zio_inherit_child_errors 
+  0                      &lt;- zio_inherit_child_errors 
+  0                      -&gt; zio_inherit_child_errors 
+  0                      &lt;- zio_inherit_child_errors 
+  0                      -&gt; zio_inherit_child_errors 
+  0                      &lt;- zio_inherit_child_errors 
+  0                      -&gt; zio_pop_transforms 
+  0                      &lt;- zio_pop_transforms 
+  0                      -&gt; vdev_stat_update  
+  0                      &lt;- vdev_stat_update  
+  0                      -&gt; zio_inherit_child_errors 
+  0                      &lt;- zio_inherit_child_errors 
+  0                      -&gt; zio_gang_tree_free 
+  0                      &lt;- zio_gang_tree_free 
+  0                      -&gt; zio_walk_parents  
+  0                        -&gt; list_head       
+  0                        &lt;- list_head       
+  0                      &lt;- zio_walk_parents  
+  0                      -&gt; cv_broadcast      
+  0                      &lt;- cv_broadcast      
+  0                    &lt;- zio_done            
+  0                  &lt;- zio_execute           
+  0                  -&gt; zio_destroy           
+  0                    -&gt; list_destroy        
+  0                    &lt;- list_destroy        
+  0                    -&gt; list_destroy        
+  0                    &lt;- list_destroy        
+  0                    -&gt; mutex_destroy       
+  0                    &lt;- mutex_destroy       
+  0                    -&gt; cv_destroy          
+  0                    &lt;- cv_destroy          
+  0                    -&gt; kmem_cache_free     
+  0                    &lt;- kmem_cache_free     
+  0                  &lt;- zio_destroy           
+  0                &lt;- zio_wait                
+  0              &lt;- dmu_buf_hold_array_by_dnode 
+  0              -&gt; uiomove                   
+  0                -&gt; xcopyout_nta            
+  0                &lt;- kcopy                   
+  0              &lt;- uiomove                   
+  0              -&gt; dmu_buf_rele_array        
+  0                -&gt; dbuf_rele               
+  0                  -&gt; dbuf_rele_and_unlock  
+  0                    -&gt; arc_buf_freeze      
+  0                    &lt;- arc_buf_freeze      
+  0                    -&gt; arc_released        
+  0                    &lt;- arc_released        
+  0                    -&gt; arc_buf_remove_ref  
+  0                      -&gt; buf_hash          
+  0                      &lt;- buf_hash          
+  0                      -&gt; remove_reference  
+  0                        -&gt; arc_buf_type    
+  0                        &lt;- arc_buf_type    
+  0                        -&gt; multilist_insert 
+  0                          -&gt; arc_state_multilist_index_func 
+  0                            -&gt; buf_hash    
+  0                            &lt;- buf_hash    
+  0                            -&gt; multilist_get_num_sublists 
+  0                            &lt;- multilist_get_num_sublists 
+  0                          &lt;- arc_state_multilist_index_func 
+  0                         | multilist_insert:multilist-insert 
+  0                         | multilist_insert:multilist-insert 
+  0                          -&gt; mutex_owned   
+  0                          &lt;- mutex_owned   
+  0                          -&gt; multilist_sublist_insert_head 
+  0                            -&gt; list_insert_head 
+  0                            &lt;- list_insert_head 
+  0                          &lt;- multilist_sublist_insert_head 
+  0                        &lt;- multilist_insert 
+  0                      &lt;- remove_reference  
+  0                    &lt;- arc_buf_remove_ref  
+  0                    -&gt; arc_buf_eviction_needed 
+  0                    &lt;- arc_buf_eviction_needed 
+  0                  &lt;- dbuf_rele_and_unlock  
+  0                &lt;- dbuf_rele               
+  0                -&gt; kmem_free               
+  0                  -&gt; kmem_cache_free       
+  0                  &lt;- kmem_cache_free       
+  0                &lt;- kmem_free               
+  0              &lt;- dmu_buf_rele_array        
+  0            &lt;- dmu_read_uio_dnode          
+  0            -&gt; zrl_remove                  
+  0            &lt;- zrl_remove                  
+  0          &lt;- dmu_read_uio_dbuf             
+  0          -&gt; zfs_range_unlock              
+  0            -&gt; zfs_range_unlock_reader     
+  0              -&gt; avl_remove                
+  0              &lt;- avl_remove                
+  0              -&gt; kmem_free                 
+  0                -&gt; kmem_cache_free         
+  0                &lt;- kmem_cache_free         
+  0              &lt;- kmem_free                 
+  0            &lt;- zfs_range_unlock_reader     
+  0          &lt;- zfs_range_unlock              
+  0          -&gt; zfs_tstamp_update_setup       
+  0            -&gt; gethrestime                 
+  0              -&gt; pc_gethrestime            
+  0                -&gt; gethrtime               
+  0                  -&gt; tsc_gethrtime         
+  0                  &lt;- tsc_gethrtime         
+  0                &lt;- gethrtime               
+  0              &lt;- pc_gethrestime            
+  0            &lt;- gethrestime                 
+  0          &lt;- zfs_tstamp_update_setup       
+  0          -&gt; rrm_exit                      
+  0            -&gt; rrw_exit                    
+  0              -&gt; cv_broadcast              
+  0              &lt;- cv_broadcast              
+  0            &lt;- rrw_exit                    
+  0          &lt;- rrm_exit                      
+  0        &lt;- zfs_read                        
+  0      &lt;- fop_read                          
+  0      -&gt; fop_rwunlock                      
+  0        -&gt; fs_rwunlock                     
+  0        &lt;- fs_rwunlock                     
+  0      &lt;- fop_rwunlock                      
+  0      -&gt; releasef                          
+  0        -&gt; clear_active_fd                 
+  0        &lt;- clear_active_fd                 
+  0        -&gt; cv_broadcast                    
+  0        &lt;- cv_broadcast                    
+  0      &lt;- releasef                          
+  0    &lt;- read
+</code></pre>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io/""The journey of a ZFS read() call in 1 min [μ]";
+	   this.page.identifier = "The journey of a ZFS read() call in 1 min [μ]";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script>
+(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+ga('create', 'UA-78963448-1', 'auto');
+ga('send', 'pageview');
+</script>
+
+

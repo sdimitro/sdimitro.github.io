@@ -1,32 +1,44 @@
----
-layout: post
-title: Keeping Track of Time Around the Globe
-date: 2016-06-07 12:00:00 -0600
-year: 2016
-month: 6
-day: 7
-published: true
-tags: time unix timezones IANA
-summary: it's complicated
----
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" href="https://sdimitro.github.io//css/style.css">
+	<title>How does my computer know about time zones? | Core Dump</title>
+	<link href='https://fonts.googleapis.com/css?family=Inconsolata:400,700' rel='stylesheet' type='text/css'>
+	<script type="text/javascript" src="https://use.typekit.com/skm6yij.js"></script>
+	<script type="text/javascript">try{Typekit.load();}catch(e){}</script>
 
-"_Even simple-looking things can sometimes have a
+<div class="header">
+	<h3><a href="https://sdimitro.github.io/">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>How does my computer know about time zones?
+			<div class="normal">
+				<div class="when"> Posted on June 7, 2016.</div>
+			</div>
+		</h1>
+   <div class="content">
+     
+
+<p>&ldquo;<em>Even simple-looking things can sometimes have a
 surprising twist in software. And everyone who thinks
 that programming dates is easy to get right the first
-time probably hasn't done much of it._" <br>
--- Peter van der Linden (Expert C Programming)
+time probably hasn&rsquo;t done much of it.</em>&rdquo; <br>
+&ndash; Peter van der Linden (Expert C Programming)</p>
 
-### Main Problem and Motivation
+<h3 id="main-problem-and-motivation">Main Problem and Motivation</h3>
 
-Recently, a colleague of mine introduced me to [World Time
-Buddy](http://www.worldtimebuddy.com/), a convenient world
+<p>Recently, a colleague of mine introduced me to <a href="http://www.worldtimebuddy.com/">World Time
+Buddy</a>, a convenient world
 clock and time zone converter used to schedule online
 meetings. I liked the application and I decided that
 I would like to develop a clone of it that would work
 locally with no internet connection and output the specified
-time zone data as plain text in the command line.
+time zone data as plain text in the command line.</p>
 
-So I made a quick utility that does this exact thing
+<p>So I made a quick utility that does this exact thing
 (or at least I have some confidence that it does). The
 problem was that I did not know how
 does my computer have all this information about time
@@ -34,11 +46,11 @@ zones used by different countries. My mind was boggling.
 I was trying to think of all the different edge cases that
 can show up on my simple world clock and at the same time
 I was wondering if my computer can handle them all by
-default.
+default.</p>
 
-### What Can Go Wrong
+<h3 id="what-can-go-wrong">What Can Go Wrong</h3>
 
-There are many timing problems that can show up within
+<p>There are many timing problems that can show up within
 a single computer system (e.g., the RTC and the system
 clock drifting apart from each other). Fortunately,
 there exist mechanisms in the OS and hardware that
@@ -46,9 +58,9 @@ take care of most of them for us. The main thing I was
 unsure of was the following: how does one go about making
 an application that maps all (or at least most) locations
 to a time zone and a Daylight Saving Time (DST) schedule,
-if applicable, at any moment.
+if applicable, at any moment.</p>
 
-As an example, let's consider a clock that shows the
+<p>As an example, let&rsquo;s consider a clock that shows the
 current time in Chicago(US) and Athens(Greece). Athens
 is 8 hours ahead of Chicago normally and both cities
 observe DST. The issue is that their DST schedules
@@ -59,12 +71,12 @@ Athens turned their clocks forward at March 27th and will
 turn them back at October 30th. This means that between
 March 13th and March 27th the time difference was 7
 hours instead of 8 and the same will happen again between
-October 30th and November 6th.
+October 30th and November 6th.</p>
 
-After thinking of the above example, I wanted to search
+<p>After thinking of the above example, I wanted to search
 for other edge cases and get a better understanding of
 the challenges of building a world clock. It
-turned out that these edge cases are so many I can't
+turned out that these edge cases are so many I can&rsquo;t
 even list them all. For example, several areas recognize
 partial offsets within a time zone (e.g., 30 and 15-minute
 offsets). Another example is that there exist places
@@ -73,26 +85,26 @@ apart for the other half because even though they are
 all in the same time zone, some of them do not adhere
 to DST. As one reads more examples that differ in
 nature like the previous two, it becomes obvious
-that these "irregularities" are not edge cases but the rule.
+that these &ldquo;irregularities&rdquo; are not edge cases but the rule.</p>
 
-So the next question is the following: Even if we
+<p>So the next question is the following: Even if we
 were to store all these information somewhere, how
 often would we have to change it? In other words,
 how often do the different areas around the globe
-decide to change their time policy?
+decide to change their time policy?</p>
 
-It turns out to be more often than most people think.
+<p>It turns out to be more often than most people think.
 To give an example, last year (2015) around 15 different
 places (countries or areas within countries) changed
 something about their time policy, either temporarily
-for that year or "more permanently" for the years to
+for that year or &ldquo;more permanently&rdquo; for the years to
 come. Chile abolished DST while Turkey delayed its DST
 end time by two weeks and North Korea introduced its
-own time zone.
+own time zone.</p>
 
-### How Do We Manage
+<h3 id="how-do-we-manage">How Do We Manage</h3>
 
-Most operating systems today keep the system time as
+<p>Most operating systems today keep the system time as
 UTC and instead of having a single time zone set for
 the whole computer they allow the user to configure
 the time as they wish. In Unix-like systems, a user
@@ -101,13 +113,13 @@ of the OS and can later vary the time zone of a
 process using the TZ environment variable. This means
 that the OS uses some kind of local database for
 countries and time zones. On my Linux machine this
-database exists in `/usr/share/zoneinfo/` and gets
-updated during my system updates by my distributions's
-updating mechanism/application.
+database exists in <code>/usr/share/zoneinfo/</code> and gets
+updated during my system updates by my distributions&rsquo;s
+updating mechanism/application.</p>
 
-This local database with all the timezone information
+<p>This local database with all the timezone information
 generally comes from the
-[IANA time zone database](https://www.iana.org/time-zones)
+<a href="https://www.iana.org/time-zones">IANA time zone database</a>
 (sometimes called OlsonDB) which is an ongoing
 collaborative compilation of information about all
 the timezone and DST cases intended to be used with
@@ -116,31 +128,65 @@ does not only contain the current time rules in the
 different areas, but also the history of time changes
 from decades ago. This can be useful for applications
 that focus on exact duration of events rather than
-specific points in time.
+specific points in time.</p>
 
-If your OS does not ship with any of those
+<p>If your OS does not ship with any of those
 databases and has some other mechanism you can still
 develop applications that use them. Many programming
 languages in their attempt to be more portable,
-generally ship with a copy of IANA or similar.
+generally ship with a copy of IANA or similar.</p>
 
-### Final Note
+<h3 id="final-note">Final Note</h3>
 
-You can read more about IANA and the data of its data on its
-[wiki page](https://en.wikipedia.org/wiki/Tz_database)
+<p>You can read more about IANA and the data of its data on its
+<a href="https://en.wikipedia.org/wiki/Tz_database">wiki page</a>
 or learn more about the procedures of adding and changing
 time rules in it by reading the archives of its
-[submissions mailing list](http://mm.icann.org/pipermail/tz/).
-[TimeAndDate](http://www.timeanddate.com/) is also a
+<a href="http://mm.icann.org/pipermail/tz/">submissions mailing list</a>.
+<a href="http://www.timeanddate.com/">TimeAndDate</a> is also a
 useful resource to keep track of the changes in time
-in the different areas.
+in the different areas.</p>
 
-The utility mentioned in the introduction that I've
+<p>The utility mentioned in the introduction that I&rsquo;ve
 been trying to write is incredibly simple considering
 its requirements and therefore it suffices to
 just plug it into IANA. There exist more complicated
 groups of programs out there (e.g., vehicle or package
 tracking) whose requirements may not be that simple.
 In that case, the programmers should be more aware of
-the pitfalls of keeping track of time in their software.
+the pitfalls of keeping track of time in their software.</p>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io/""How does my computer know about time zones?";
+	   this.page.identifier = "How does my computer know about time zones?";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script>
+(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+ga('create', 'UA-78963448-1', 'auto');
+ga('send', 'pageview');
+</script>
+
 
