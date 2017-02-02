@@ -5,6 +5,7 @@ body {
 }
 .content {
   font-family: 'Libre Baskerville', serif;
+  font-size: 90%;
 }
 .header {
   height: 1.25em;
