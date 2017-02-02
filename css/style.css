@@ -3,6 +3,9 @@ body {
   margin: 0;
   font-size: 100%;
 }
+.content {
+  font-family: 'Libre Baskerville', serif;
+}
 .header {
   height: 1.25em;
   background-color: white;
@@ -35,8 +38,10 @@ body {
 }
 .toc-subtitle {
   display: block;
+  font-family: 'Libre Baskerville', serif;
+  margin-top: 0.5em;
   margin-bottom: 1em;
-  font-size: 83%;
+  font-size: 80%;
 }
 @media only screen and (max-width: 550px) { .toc-subtitle { display: none; } }
 .header h3 a {
@@ -58,7 +63,7 @@ body {
   text-align: center;
 }
 .article h1, .article h2, .article h3 {
-    font-family: 'Myriad Pro';
+   font-family: 'PT Sans', sans-serif;
 }
 .normal {
   font-size: medium;
@@ -163,16 +168,19 @@ pre, code {
 }
 .toc {
   list-style: none;
+  font-family: 'Libre Baskerville', serif;
+  font-size: 90%;
 }
 .toc li {
   margin-bottom: 0.5em;
 }
 .toc-head {
   margin-bottom: 1em !important;
-  font-size: 117%;
+  font-size: 100%;
 }
 .toc-summary {
   margin-left: 2em;
+  font-size: 70%;
 }
 .favorite {
   font-weight: bold;
