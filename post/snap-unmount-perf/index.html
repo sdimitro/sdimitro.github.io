@@ -79,7 +79,8 @@ that has an entry whose name is <code>&quot;snaps&quot;</code> and its value is 
 which contains a list of all the snapshots to be destroyed. So before we
 destroy any snapshots we go ahead an call <code>zfs_unmount_snap</code> on each of
 them. In order to unmount a given snapshot <code>zfs_unmount_snap</code> has to first
-find the VFS resource of the corresponding snapshot, so it calls <code>zfs_get_vfs</code>.</p>
+find the VFS resource (i.e. mountpoint) of the corresponding snapshot, so
+it calls <code>zfs_get_vfs</code>.</p>
 
 <pre><code>/*
  * Search the vfs list for a specified resource.  Returns a pointer to it
@@ -122,21 +123,19 @@ one-liner that counts the number of calls to <code>strcmp</code> in tha code pat
 destroying that snapshot:</p>
 
 <pre><code>serapheim@EndlessSummer:~$ sudo dtrace -c 'zfs destroy testpool/fs10@snap' \
-    -n 'BEGIN{C = 0;} strcmp:entry/callers[&quot;zfs_get_vfs&quot;]/{C += 1;} END{print(C)}'
-dtrace: description 'BEGIN' matched 6 probes
-dtrace: pid 11585 has exited
-CPU     ID                    FUNCTION:NAME
-  0      2                             :END int 0xa
+    -n 'strcmp:entry/callers[&quot;zfs_get_vfs&quot;]/{@ = count();}'
+dtrace: description 'strcmp:entry' matched 4 probes
+dtrace: pid 4417 has exited
+           10
 </code></pre>
 
 <p>And after deleting one of the filesystems:</p>
 
 <pre><code>serapheim@EndlessSummer:~$ sudo dtrace -c 'zfs destroy testpool/fs10@snap' \
-    -n 'BEGIN{C = 0;} strcmp:entry/callers[&quot;zfs_get_vfs&quot;]/{C += 1;} END{print(C)}'
-dtrace: description 'BEGIN' matched 6 probes
-dtrace: pid 13408 has exited
-CPU     ID                    FUNCTION:NAME
-  0      2                             :END int 0x9
+    -n 'strcmp:entry/callers[&quot;zfs_get_vfs&quot;]/{@ = count();}'
+dtrace: description 'strcmp:entry' matched 4 probes
+dtrace: pid 4417 has exited
+           9
 </code></pre>
 
 <p>So our hypothesis is correct, the runtime is indeed <code>O(mn)</code>. Fortunately
@@ -147,8 +146,8 @@ be able to decrease the runtime from <code>O(mn)</code> to <code>O(n)</code>.</p
 <h3 id="evaluation-of-initial-fix">Evaluation of Initial Fix</h3>
 
 <p>I created a new VM in which I created 10 thousand filesystems, each containing
-one snapshot. Then I created a small driver program that attempts to destroy
-all of the snapshots at once. The flamegraph that I got from this was very
+one snapshot. As I named all the snapshots the same, I just ran <code>zfs destroy -r &lt;snap name&gt;</code>
+to destroy all of them at once. The flamegraph that I got from this was very
 similar to the one that George generated (original flamegraph can be found
 <a href="https://sdimitro.github.io/img/flame/sdimitro_snap_unmount.svg">here</a>):</p>
 
@@ -178,10 +177,10 @@ iterate through the whole list to make sure that the nvpair that we are about
 to add doesn&rsquo;t have the same name with any other entry, thus all the calls
 to <code>strcmp</code> in the <code>dsl_destroy_snapshots_nvl</code> stack.</p>
 
-<p>Once again, we are lucky and we don&rsquo;t have to ensure this property in the
-given stack. The reason has to do with how the nvlist is treated later
+<p>Once again, we are lucky as we don&rsquo;t have to ensure this property in the
+given use case. The reason has to do with how the nvlist is treated later
 by <code>spa_sync</code> where we convert it to a LUA table that can more efficiently
-enforce uniqueness being a hash-table.</p>
+enforce uniqueness because it&rsquo;s implemented as a hash-table.</p>
 
 <h3 id="evaluation-of-updated-fix">Evaluation of Updated Fix</h3>
 
@@ -201,6 +200,16 @@ importance by itself, we saw how it can affect the performance of important
 operations like snapshot deletion. Another interesting experiment would be
 to measure how this change affects mass renaming of snapshots in a pool, as
 this operation attempts to unmount all snapshots before renaming them.</p>
+
+<h3 id="future-work">Future Work</h3>
+
+<p>For this performance fix, we were lucky that we could delegate the uniqueness
+property of NV pairs from the nvlist to the LUA table. Unfortunately, many
+other places within ZFS, and other parts of the illumos repo, that use
+nvlists don&rsquo;t have the luxury to do something similar. Implementing a
+hash-table to be used internally within the nvlist interface, that can
+lookup a pair in constant time, would be an effective solution of dealing
+with this problem uniformly for all consumers.</p>
 
 <h3 id="appendix-a-generating-the-flamegraphs">Appendix A - Generating the Flamegraphs</h3>
 
