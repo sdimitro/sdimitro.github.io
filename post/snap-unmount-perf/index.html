@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<title>ZFS Snapshot Unmounting | Core Dump</title>
+	<link href="https://fonts.googleapis.com/css?family=Libre+Baskerville" rel="stylesheet"> 
+	<link href="https://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet"> 
+	<link rel="stylesheet" href="https://sdimitro.github.io/css/style.css">
+
+<div class="header">
+	<h3><a href="https://sdimitro.github.io">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>ZFS Snapshot Unmounting
+			<div class="normal">
+				<div class="when"> Posted on July 28, 2017.</div>
+			</div>
+		</h1>
+   <div class="content">
+     
+
+<h3 id="motivation">Motivation</h3>
+
+<p>Recently Alex Kleiman, a coworker from the Replication team here at
+Delphix, was doing some performance testing that involved deleting
+more than 450 thousand snapshots in ZFS. That specific part of the
+test was taking hours to complete and after doing some initial
+investigation Alex notified the ZFS team that too much time was spent
+in the kernel.</p>
+
+<p>George Wilson jumped on the VM that the performance tests were running
+and was able to shed some light to the situation with the following
+flamegraph (interactive one can be found <a href="https://sdimitro.github.io/img/flame/gwilson_snap_unmount.svg">here</a>):</p>
+
+<p><img src="https://sdimitro.github.io/img/gwilson_snap_unmount.png" alt="flamegraph" width="900" height="500"/></p>
+
+<h3 id="analysis-and-fix">Analysis and Fix</h3>
+
+<p>From the above flamegraph we see that <code>zfs_unmount_snap</code> and its
+subsequent function calls dominate the portion of the time we spend
+in the <code>zfs_ioc_destroy_snaps</code> ioctl. There are many interesting
+questions that we can ask about this, but the two main ones are the
+following:</p>
+
+<p>[1] Why are we spending so much time unmounting snapshots?</p>
+
+<p>[2] Why do we spend so much time doing string comparisons while unmounting?</p>
+
+<p>It goes without saying that we must unmount a snapshots before deleting
+it, yet snapshots are rarely mounted (i.e. you have to specifically
+perform operations in the <code>~/.zfs/snapshot/</code> directory). Thus we
+shouldn&rsquo;t be spending that much time trying to unmount them. Inspecting
+the code, the following parts are of interest to the investigation:</p>
+
+<pre><code>/* ARGSUSED */
+static int
+zfs_ioc_destroy_snaps(const char *poolname, nvlist_t *innvl, nvlist_t *outnvl)
+{
+    nvlist_t *snaps;
+    nvpair_t *pair;
+    boolean_t defer;
+
+    if (nvlist_lookup_nvlist(innvl, &quot;snaps&quot;, &amp;snaps) != 0)
+        return (SET_ERROR(EINVAL));
+    defer = nvlist_exists(innvl, &quot;defer&quot;);
+
+    for (pair = nvlist_next_nvpair(snaps, NULL); pair != NULL;
+        pair = nvlist_next_nvpair(snaps, pair)) {
+        (void) zfs_unmount_snap(nvpair_name(pair));
+    }
+    ...
+</code></pre>
+
+<p>The above snippet is our entrance to the ZFS ioctl in the kernel.
+Name-Value pair lists (aka nvlists) are commonly-used in ZFS for passing
+information around. Here the ioctl receives one from the userland (<code>innvl</code>)
+that has an entry whose name is <code>&quot;snaps&quot;</code> and its value is another nvlist
+which contains a list of all the snapshots to be destroyed. So before we
+destroy any snapshots we go ahead an call <code>zfs_unmount_snap</code> on each of
+them. In order to unmount a given snapshot <code>zfs_unmount_snap</code> has to first
+find the VFS resource of the corresponding snapshot, so it calls <code>zfs_get_vfs</code>.</p>
+
+<pre><code>/*
+ * Search the vfs list for a specified resource.  Returns a pointer to it
+ * or NULL if no suitable entry is found. The caller of this routine
+ * is responsible for releasing the returned vfs pointer.
+ */
+static vfs_t *
+zfs_get_vfs(const char *resource)
+{
+    struct vfs *vfsp;
+    struct vfs *vfs_found = NULL;
+
+    vfs_list_read_lock();
+    vfsp = rootvfs;
+    do {
+        if (strcmp(refstr_value(vfsp-&gt;vfs_resource), resource) == 0) {
+            VFS_HOLD(vfsp);
+            vfs_found = vfsp;
+            break;
+        }
+        vfsp = vfsp-&gt;vfs_next;
+    } while (vfsp != rootvfs);
+    vfs_list_unlock();
+    return (vfs_found);
+}
+</code></pre>
+
+<p>The function does a linear search through all the VFS resources until it
+finds the resource that we are looking for. Since snapshots are rarely
+mounted and filesystems almost always are, the case is that for each snapshot
+to be deleted we do one whole iteration through all the  mounted filesystems
+in the VFS layer. In terms of computational complexity that would be
+expressed as <code>O(mn)</code> where <code>m</code> is the number of mounted filessytems and <code>n</code>
+is the number of snapshots that we are trying to delete. That answers both
+our questions.</p>
+
+<p>To do a quick verification of the above hypothesis, I created 10 filesystems
+in a VM and took a snapshot of one of them. Then I ran the following DTrace
+one-liner that counts the number of calls to <code>strcmp</code> in tha code path while
+destroying that snapshot:</p>
+
+<pre><code>serapheim@EndlessSummer:~$ sudo dtrace -c 'zfs destroy testpool/fs10@snap' \
+    -n 'BEGIN{C = 0;} strcmp:entry/callers[&quot;zfs_get_vfs&quot;]/{C += 1;} END{print(C)}'
+dtrace: description 'BEGIN' matched 6 probes
+dtrace: pid 11585 has exited
+CPU     ID                    FUNCTION:NAME
+  0      2                             :END int 0xa
+</code></pre>
+
+<p>And after deleting one of the filesystems:</p>
+
+<pre><code>serapheim@EndlessSummer:~$ sudo dtrace -c 'zfs destroy testpool/fs10@snap' \
+    -n 'BEGIN{C = 0;} strcmp:entry/callers[&quot;zfs_get_vfs&quot;]/{C += 1;} END{print(C)}'
+dtrace: description 'BEGIN' matched 6 probes
+dtrace: pid 13408 has exited
+CPU     ID                    FUNCTION:NAME
+  0      2                             :END int 0x9
+</code></pre>
+
+<p>So our hypothesis is correct, the runtime is indeed <code>O(mn)</code>. Fortunately
+for us, the structure representing any dataset has a pointer to its VFS
+resource and looking up a dataset within ZFS is <code>O(1)</code>, thus we should
+be able to decrease the runtime from <code>O(mn)</code> to <code>O(n)</code>.</p>
+
+<h3 id="evaluation-of-initial-fix">Evaluation of Initial Fix</h3>
+
+<p>I created a new VM in which I created 10 thousand filesystems, each containing
+one snapshot. Then I created a small driver program that attempts to destroy
+all of the snapshots at once. The flamegraph that I got from this was very
+similar to the one that George generated (original flamegraph can be found
+<a href="https://sdimitro.github.io/img/flame/sdimitro_snap_unmount.svg">here</a>):</p>
+
+<p><img src="https://sdimitro.github.io/img/sdimitro_snap_unmount2.png" alt="flamegraph" width="900" height="500"/></p>
+
+<p>We can see that there are some other code paths down that ioctl but
+<code>zfs_unmount_snap</code> still takes the majority of the time. After
+applying the fix mentioned at the end of the previous section, the
+results where the following (original flamegraph can be found
+<a href="https://sdimitro.github.io/img/flame/sdimitro_snap_unmount3.svg">here</a>):</p>
+
+<p><img src="https://sdimitro.github.io/img/sdimitro_snap_unmount3.png" alt="flamegraph" width="900" height="500"/></p>
+
+<p>The difference in the number of samples in <code>zfs_unmount_snap()</code> is dramatic
+(~2000 down to ~200 which is a 10x win). <code>dsl_destroy_snapshots_nvl</code> now
+completely dwarves <code>zfs_unmount_snap</code> in terms of sample count (1500 vs 200).
+After seeing the flamegraph, Matt Ahrens suggested that we investigate
+the reason behind that stack taking time. He pointed that the issue should
+be the uniqueness property being enforced in the nvlists used.</p>
+
+<h3 id="nv-pair-uniqueness">NV Pair Uniqueness</h3>
+
+<p>An nvlist can be created with the NV_UNIQUE_NAME flag which ensures that
+no two entries have an identical name. The problem with this data structure
+though, being a list, is that enforcing this property means that we have to
+iterate through the whole list to make sure that the nvpair that we are about
+to add doesn&rsquo;t have the same name with any other entry, thus all the calls
+to <code>strcmp</code> in the <code>dsl_destroy_snapshots_nvl</code> stack.</p>
+
+<p>Once again, we are lucky and we don&rsquo;t have to ensure this property in the
+given stack. The reason has to do with how the nvlist is treated later
+by <code>spa_sync</code> where we convert it to a LUA table that can more efficiently
+enforce uniqueness being a hash-table.</p>
+
+<h3 id="evaluation-of-updated-fix">Evaluation of Updated Fix</h3>
+
+<p>After loosening up the uniqueness property of the nvlists used, I generated
+one final flamegraph (original flamegraph can be found
+<a href="https://sdimitro.github.io/img/flame/sdimitro_snap_unmount4.svg">here</a>):</p>
+
+<p><img src="https://sdimitro.github.io/img/sdimitro_snap_unmount4.png" alt="flamegraph" width="900" height="500"/></p>
+
+<p>The sample count of <code>zfs_ioc_destroy_snaps</code> itself has decreased to the order
+that of <code>zfs_unmount_snap</code> (3700 down to 200 samples).</p>
+
+<h3 id="fin">Fin</h3>
+
+<p>Even though unmounting snapshots in ZFS is not an operation of high
+importance by itself, we saw how it can affect the performance of important
+operations like snapshot deletion. Another interesting experiment would be
+to measure how this change affects mass renaming of snapshots in a pool, as
+this operation attempts to unmount all snapshots before renaming them.</p>
+
+<h3 id="appendix-a-generating-the-flamegraphs">Appendix A - Generating the Flamegraphs</h3>
+
+<p>For my experiments I ran the following DTrace one-liner while I issued the
+deletion of the snapshots:</p>
+
+<pre><code>sudo dtrace \
+    -xstackframes=100 \
+    -n 'profile-997{@[stack()]=count()}' \
+    -c 'sleep 30' | \
+    stackcollapse.pl | \
+    flamegraph.pl \
+    &gt; svgs/$$.svg
+</code></pre>
+
+<p>The option <code>-xstackframes=100</code> raises the limit for the number of stacks
+returned by <code>stack()</code> from 20 (default) to 100, in order to avoid any
+truncation. The probe <code>profile-997</code> (sort for <code>profile:::profile-997</code>)
+fires at 997 Hertz on all CPUs. The action <code>stack()</code> returns the kernel
+stack trace, which is used as the key to our anonymous aggregation so
+we can count its frequency. DTrace runs for 30 seconds while <code>sleep 30</code>
+executes.</p>
+
+<p>Resources:</p>
+
+<ul>
+<li><a href="http://dtrace.org/guide/preface.html">Dynamic Tracing Guide</a></li>
+<li><a href="http://www.brendangregg.com/flamegraphs.html">Flamegraphs</a></li>
+</ul>
+
+<h3 id="appendix-b-openzfs-patch">Appendix B - OpenZFS patch</h3>
+
+<p>[TBA]</p>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io""ZFS Snapshot Unmounting";
+	   this.page.identifier = "ZFS Snapshot Unmounting";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script>
+(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+ga('create', 'UA-78963448-1', 'auto');
+ga('send', 'pageview');
+</script>
+
+
