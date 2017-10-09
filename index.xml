@@ -87,5 +87,14 @@ Recently on illumos-core, I was working on an issue that had the goal of removin
       <description>Motivation Two semesters ago, I was introduced to gdb in my systems programming course. Since this was the first time that I used an actual debugger, I was really impressed by the things it could do. I wanted to see what gdb was capable of, so I tried every single command on simple programs. Unfortunately, by the time I actually needed gdb in my class projects I forgot most of them.</description>
     </item>
     
+    <item>
+      <title></title>
+      <link>https://sdimitro.github.io/slides/storage-pool-checkpoint/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://sdimitro.github.io/slides/storage-pool-checkpoint/</guid>
+      <description>Storage Pool Checkpoint  var notesEnabled = false ;    Storage Pool Checkpoint 25 October 2017  Serapheim Dimitropoulos  Delphix     Timeline   Started with Dan Kimmel at last year&#39;s hackathon Redesigned from scratch later that year Pushed in product last spring and soaking since then   Can only be upstreamed after Device Removal. Help us get there :-)  Motivation   Motivation  Upgrading a Delphix Engine  Reboot to new OS version Run several upgrade scripts   Each upgrade script  Manipulates ZFS datasets and their properties Has a respective rollback script in case it fails    Motivation  Problems with rollback scripts  Tedious &amp;amp; time-consuming to write but most importantly, error-prone   The main problem with our rollback  Upgrade scripts manipulate datasets (not files!</description>
+    </item>
+    
   </channel>
 </rss>
