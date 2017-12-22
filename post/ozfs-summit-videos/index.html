@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<title>OpenZFS Dev Summit 2017 videos | Core Dump</title>
+	<link href="https://fonts.googleapis.com/css?family=Libre+Baskerville" rel="stylesheet"> 
+	<link href="https://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet"> 
+	<link rel="stylesheet" href="https://sdimitro.github.io/css/style.css">
+
+<div class="header">
+	<h3><a href="https://sdimitro.github.io">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>OpenZFS Dev Summit 2017 videos
+			<div class="normal">
+				<div class="when"> Posted on December 21, 2017.</div>
+			</div>
+		</h1>
+   <div class="content">
+     
+
+<p>All the videos for the OpenZFS summit (including the lightning talks) are now
+online and can be found <a href="http://open-zfs.org/wiki/OpenZFS_Developer_Summit_2017">here</a>.</p>
+
+<h3 id="day-1-faster-allocation-with-the-log-spacemap">Day 1 - Faster Allocation with the Log Spacemap</h3>
+
+
+<div style="position: relative; padding-bottom: 56.25%; padding-top: 30px; height: 0; overflow: hidden;">
+  <iframe src="//www.youtube.com/embed/jj2IxRkl5bQ" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" allowfullscreen frameborder="0"></iframe>
+ </div>
+
+
+<h3 id="day-2-storage-pool-checkpoint">Day 2 - Storage Pool Checkpoint</h3>
+
+
+<div style="position: relative; padding-bottom: 56.25%; padding-top: 30px; height: 0; overflow: hidden;">
+  <iframe src="//www.youtube.com/embed/fPQA8K40jAM" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" allowfullscreen frameborder="0"></iframe>
+ </div>
+
+
+<hr />
+
+<h3 id="bonus-source-code-for-storage-pool-checkpoint">[BONUS] - Source Code for Storage Pool Checkpoint</h3>
+
+<p>The original source code of the zpool checkpoint for DelphixOS is now online
+on Github and can be found <a href="https://github.com/delphix/delphix-os/commit/a546b2f78c1484e292e88faa152edd914601fbce">here</a>.
+As you can see the commit day is the 5th of April earlier this year, so the
+code has been soaking for some months now with one bug found and
+<a href="https://github.com/delphix/delphix-os/commit/e5fe6b3cf745feffa1b462b8c30c5b848e1dfd7d">fixed</a>
+since then. Please feel free to email me with any questions on the source code.
+I hope the code itself is straight-forward and that the comments in it explain
+the reasoning behind its design. For a high-level overview I&rsquo;d advice that the
+reader starts by reading the <a href="https://github.com/delphix/delphix-os/commit/a546b2f78c1484e292e88faa152edd914601fbce#diff-2e17156059be3a1bdbaccc0a7237513cR26">block comment</a>
+of the new code and for any specifics follow the references from there. For
+completeness, I also want to mention that the checkpoint discarding code uses
+a new piece of infrastructure called ZTHRs* that was introduced in an ealier
+<a href="https://github.com/delphix/delphix-os/commit/3187885550d4e7c07fe7ef9f415b2776c2ef2b38#diff-7d0720d5ff0f00cdd760573471546f8f">commit</a>.</p>
+
+<h3 id="bonus-source-code-for-the-new-space-map-encoding">[BONUS] - Source Code for the new Space Map Encoding</h3>
+
+<p>Code can be found <a href="https://github.com/delphix/delphix-os/commit/51b5d2583f1f12c24c99b020ce6f5b8e8627eecc">here</a>.
+Extending the space map format that has existed since the creation of ZFS
+and completely rewriting some code that had been running fine for 10 years,
+was an interesting endeavour to say the least.</p>
+
+<hr />
+
+<p>*unfortunately ZTHREADs was taken.</p>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io""OpenZFS Dev Summit 2017 videos";
+	   this.page.identifier = "OpenZFS Dev Summit 2017 videos";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script>
+(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+ga('create', 'UA-78963448-1', 'auto');
+ga('send', 'pageview');
+</script>
+
+

@@ -6,10 +6,20 @@
     <description>Recent content on Core Dump</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Fri, 28 Jul 2017 12:00:00 -0600</lastBuildDate>
+    <lastBuildDate>Thu, 21 Dec 2017 02:26:02 -0700</lastBuildDate>
     
 	<atom:link href="https://sdimitro.github.io/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>OpenZFS Dev Summit 2017 videos</title>
+      <link>https://sdimitro.github.io/post/ozfs-summit-videos/</link>
+      <pubDate>Thu, 21 Dec 2017 02:26:02 -0700</pubDate>
+      
+      <guid>https://sdimitro.github.io/post/ozfs-summit-videos/</guid>
+      <description>All the videos for the OpenZFS summit (including the lightning talks) are now online and can be found here.
+Day 1 - Faster Allocation with the Log Spacemap   Day 2 - Storage Pool Checkpoint   [BONUS] - Source Code for Storage Pool Checkpoint The original source code of the zpool checkpoint for DelphixOS is now online on Github and can be found here. As you can see the commit day is the 5th of April earlier this year, so the code has been soaking for some months now with one bug found and fixed since then.</description>
+    </item>
     
     <item>
       <title>ZFS Snapshot Unmounting</title>
