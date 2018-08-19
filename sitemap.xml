@@ -2,6 +2,11 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   
   <url>
+    <loc>https://sdimitro.github.io/post/seq-arc-cached-reads-micro/</loc>
+    <lastmod>2018-08-18T12:00:00-06:00</lastmod>
+  </url>
+  
+  <url>
     <loc>https://sdimitro.github.io/post/ozfs-summit-videos/</loc>
     <lastmod>2017-12-21T02:26:02-07:00</lastmod>
   </url>
@@ -57,13 +62,13 @@
   
   <url>
     <loc>https://sdimitro.github.io/</loc>
-    <lastmod>2017-12-21T02:26:02-07:00</lastmod>
+    <lastmod>2018-08-18T12:00:00-06:00</lastmod>
     <priority>0</priority>
   </url>
   
   <url>
     <loc>https://sdimitro.github.io/post/</loc>
-    <lastmod>2017-12-21T02:26:02-07:00</lastmod>
+    <lastmod>2018-08-18T12:00:00-06:00</lastmod>
     <priority>0</priority>
   </url>
   

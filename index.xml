@@ -6,10 +6,20 @@
     <description>Recent content on Core Dump</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Thu, 21 Dec 2017 02:26:02 -0700</lastBuildDate>
+    <lastBuildDate>Sat, 18 Aug 2018 12:00:00 -0600</lastBuildDate>
     
 	<atom:link href="https://sdimitro.github.io/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>ZFS Flamegraph Analysis Example [μ]</title>
+      <link>https://sdimitro.github.io/post/seq-arc-cached-reads-micro/</link>
+      <pubDate>Sat, 18 Aug 2018 12:00:00 -0600</pubDate>
+      
+      <guid>https://sdimitro.github.io/post/seq-arc-cached-reads-micro/</guid>
+      <description>Doing sequential reads on a working set that is cached in the ARC should yield the best case performance for reads in ZFS, as disk accesses are avoided. An experiment like this can uncover CPU bottlenecks in the read codepath from the moment the read is issued to the ARC access and back. sequential_reads_arc_cached.ksh which is used to test for performance regressions does exactly that.
+An interesting detail of this test is that running it on a system that just booted, gives consistently better results the first time compared to subsequent times.</description>
+    </item>
     
     <item>
       <title>OpenZFS Dev Summit 2017 videos</title>

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<title>ZFS Flamegraph Analysis Example [μ] | Core Dump</title>
+	<link href="https://fonts.googleapis.com/css?family=Libre+Baskerville" rel="stylesheet"> 
+	<link href="https://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet"> 
+	<link rel="stylesheet" href="https://sdimitro.github.io/css/style.css">
+
+<div class="header">
+	<h3><a href="https://sdimitro.github.io">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>ZFS Flamegraph Analysis Example [μ]
+			<div class="normal">
+				<div class="when"> Posted on August 18, 2018.</div>
+			</div>
+		</h1>
+   <div class="content">
+     
+
+<p>Doing sequential reads on a working set that is cached in the ARC should yield
+the best case performance for reads in ZFS, as disk accesses are avoided. An
+experiment like this can uncover CPU bottlenecks in the read codepath from the
+moment the read is issued to the ARC access and back.
+<code>sequential_reads_arc_cached.ksh</code> which is used to test for performance
+regressions does exactly that.</p>
+
+<p>An interesting detail of this test is that running it on a system that
+just booted, gives consistently better results the first time compared to
+subsequent times. On one of my test machines I&rsquo;ve seen results of 10950 MB/s
+on the first run dropping to 8689 MB/s in subsequent runs. The reason is that,
+in the first run of the test in a fresh machine, the dbuf cache is being
+populated for the first time and there is no need to evict anything. This is
+unlike subsequent runs that need to evict entries from the dbuf cache in order
+to cache their dbufs.</p>
+
+<p>While root-causing the issue with Matt and analyzing the flamegraphs from the
+different runs, I decided to take some notes and share them as I believe this
+information can be of value to others.</p>
+
+<h2 id="the-flamegraph">The Flamegraph</h2>
+
+<p><img src="https://sdimitro.github.io/img/flame.png" alt="flamegraph" width="900" height="500"/>
+Interactive version can be found <a href="https://sdimitro.github.io/img/flame/sequential_arc_cached_reads/stock-1m-64.svg">here</a>.</p>
+
+<p>The bottom of the flamegraph indicates three things:</p>
+
+<ul>
+<li>The CPU is never idle.</li>
+<li>The majority of the time is spent in the read codepath.</li>
+<li>Some portion of the CPU time is spent on the dbuf-eviction thread. This part
+indicates how much time ZFS spends evicting dbufs.</li>
+</ul>
+
+<p><img src="https://sdimitro.github.io/img/zfs_read.png" alt="zfs_read" width="900" height="500"/></p>
+
+<p>Under <code>zfs_read()</code> time is spent in three places. The majority of the time is
+spent <code>dmu_buf_hold_array_by_dnode()</code> where we read the actual blocks from the
+ARC. Then there is <code>uiomove()</code>, which copies the data read into buffers that
+will be eventually returned to the userspace. <code>uiomove()</code> is a good indicator
+of the work being done (the bigger the percent spent there, the more IOPS we
+get in general). Finally, there is a small amount of time spent releasing the
+buffers ZFS was holding.</p>
+
+<p><img src="https://sdimitro.github.io/img/reads.png" alt="reads" width="900" height="500"/></p>
+
+<p>Inside <code>dmu_buf_hold_array_by_dnode()</code> there are two paths that call into
+<code>dbuf_read()</code> to read buffers from the ARC. The one that is called directly
+from <code>dmu_buf_hold_array_by_dnode()</code> gets the data that will be copied by
+<code>uiomove()</code> to the buffers returned to the userspace. This is the data the
+application that issued the read cares about.</p>
+
+<p>The other path to <code>dbuf_read()</code> is through <code>dbuf_hold()</code>. In general, these
+calls indicate time spent reading indirect blocks. Since the experiment
+recorded by the flamegraph was doing only sequential reads, it is not
+suprising that the amount spent reading indirect blocks is minimal.</p>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io""ZFS Flamegraph Analysis Example [μ]";
+	   this.page.identifier = "ZFS Flamegraph Analysis Example [μ]";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script>
+(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+ga('create', 'UA-78963448-1', 'auto');
+ga('send', 'pageview');
+</script>
+
+
