@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<title>ZFS Log Spacemap - The Flushing Algorithm | Core Dump</title>
+	<link href="https://fonts.googleapis.com/css?family=Libre+Baskerville" rel="stylesheet"> 
+	<link href="https://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet"> 
+	<link rel="stylesheet" href="https://sdimitro.github.io/css/style.css">
+
+<div class="header">
+	<h3><a href="https://sdimitro.github.io">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>ZFS Log Spacemap - The Flushing Algorithm
+			<div class="normal">
+				<div class="when"> Posted on September 5, 2018.</div>
+			</div>
+		</h1>
+   <div class="content">
+     
+
+<h4 id="introduction">~ Introduction</h4>
+
+<p>During last year&rsquo;s OpenZFS Summit I presented the motivation and the internals
+of the Log Spacemap project - a project that Matt started a long time ago and
+we ended up finishing together the beginning of this year. In order to fully
+grasp the context of this post, I highly recommend that you watch last year&rsquo;s
+presentation first. Regardless, there is still a brief overview in this post,
+as I believe that the subject discussed can be presented in a more abstract manner.</p>
+
+<p>This post is about the flushing algorithm of the Log Spacemap project that was
+left as an open question during the aforementioned presentation. It describes the
+motivation on why an algorithm like that is needed, what were some of the designs
+that were tried before the one that was implemented, and how does the final
+design perform. There is also an addendum on the tools that were built around
+that feature to analyze its behavior.</p>
+
+<h4 id="quick-review-of-the-log-spacemap-feature">~ Quick Review of the Log Spacemap feature</h4>
+
+<p>Log spacemaps are an optimization in ZFS metadata allocation for pools whose workloads
+are primarily random-writes (e.g. pools used for databases, VMs, etc..) with high
+levels of fragmentations. To give some background, each vdev in ZFS is divided into
+equal parts called metaslabs. ZFS represents each metaslab on-disk with a structure
+called a spacemap (an append-only log of allocations and frees) and in-memory with an
+AVL tree where each node represents a range of free space.</p>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/lsm_metaslab.png" width="50%" height="50%"/>
+</p>
+
+<p>Due to the copy-on-write nature of ZFS, fragmented pools with random-write workloads,
+end up spending a lot of I/Os each TXG appending to the spacemap of each metaslab.
+Instead of doing that, a pool with the Log Spacemap feature enabled, logs the
+changes of all metaslabs in-memory, in 2 new AVL trees per metaslab (called
+<code>unflushed_allocs</code> and <code>unflushed_frees</code>). It also issues a single I/O with all the
+metaslab changes in a pool-wide spacemap on-disk (the <code>log spacemap</code>), for persistence.
+Persistance is needed specifically for the case that a crash happens and the pool
+has to reconstruct its unflushed state (e.g. repopulated <code>unflushed_allocs</code> and
+<code>unflushed_frees</code> of each metaslab).</p>
+
+<p>As more blocks are accumulated in log spacemaps and more unflushed changes are
+accounted in memory, we flush a selected group of metaslabs every TXG for the
+following reasons:</p>
+
+<ol>
+<li>Relieve memory pressure</li>
+<li>Decrease overheads in the import time after a crash.</li>
+</ol>
+
+<p>[1] happens as the flushing a metaslab means flushing all the segments of <code>unflushed_allocs</code>
+and <code>unflushed_frees</code> in-memory to the metaslab&rsquo;s spacemap on-disk. For [2] the
+situation is a bit more complicated. As TXGs pass and we flush metaslabs from
+oldest-flushed to recently-flushed, log spacemaps of old TXGs become obsolete.
+A log spacemap is said to be obsolete when all its entries have made it to their
+respective metaslab spacemaps. Obsolete log spacemaps can be safely destroyed as
+they are no longer relevant. Obsolete logs are destroyed every TXG so in the
+case of an import after a crash we have less log spacemaps to read in order to
+reconstruct the unflushed state of the pool.</p>
+
+<h4 id="why-is-the-flushing-algorithm-important">~ Why is the flushing algorithm important?</h4>
+
+<p>There are two aspects of the Log Spacemap feature that can be problematic if there
+is no explicit policy on how flushing is handled. The most straightforward one is
+memory usage. In this new world, each metaslab has 2 extra AVL trees that contain
+segments which are waiting to be flushed to their metaslab&rsquo;s spacemap. The more
+segments are held in memory like this, the bigger the pressure on the system. When
+we flush a metaslab, we flush all the segments from the aforementioned AVLs to disk,
+relieving some of this pressure.</p>
+
+<p>The other aspect is the amount of blocks used for log spacemaps on-disk. Not only
+the amount of log spacemaps blocks shouldn&rsquo;t grow without a bound, but there should
+be an explicit limit to keep it in check. If no such limit exists there would be
+no bound to the overhead induced at import time after a crash. Flushing metaslabs
+often can help keep the log short. On the other hand, flushing too often defeats
+the purpose of the log spacemap feature.</p>
+
+<p>To summarize the above, the ideal flushing algorithm should:</p>
+
+<ol>
+<li>React when the memory usage of the feuture is getting out of hand.</li>
+<li>Don&rsquo;t flush metaslabs too often in order to minimize the # of I/Os issued.</li>
+<li>Flush metaslabs rarely enough so they utilize their I/O blocksize.</li>
+<li>Flush frequently enough so import times after crashing are not severely impacted.</li>
+<li>Behave in a consistent and predictable manner.</li>
+</ol>
+
+<p>[2] and [3] are antithetical to [4] and this is where reality kicks in. One may
+say that big enterprise setups of ZFS rarely crash so there is no need to focus
+on import times after crashing and the goal should be to just make the algorithm
+rarely flush metaslabs. Regardless of whether this statement is true, crashes
+do happen. When they do, long import times mean more downtime. Thus, a pragmatic
+solution to this problem would be to design an algorithm that makes a calculated
+tradeoff in the amount of flushing that works well enough in the majority of the
+cases and potentially exposing a knob for expert users that really know what they
+are doing.</p>
+
+<h4 id="dealing-with-memory-usage">~ Dealing with memory usage</h4>
+
+<p>The simplest approach to this is to ensure that the memory usage of the unflushed
+trees stays below a certain threshold. The threshold can be determined by an
+arbitrary hard limit (e.g. 1GB is the max amount of memory that can be used by
+unflushed changes), and an arbitrary percentage of the system&rsquo;s memory (e.g.
+unflushed changes should not take up more that 0.1% of the system&rsquo;s memory). From
+these two, we pick the lowest one as the threshold. Whenever the threshold is
+exceeded the system starts flushing metaslabs until it gets below it again.</p>
+
+<h4 id="coming-up-with-a-block-heuristic">~ Coming up with a block heuristic</h4>
+
+<p>Earlier in this post, the use of an explicit limit on the amount of log spacemap
+blocks was discussed, so the log doesn&rsquo;t grow indefinitely. For this section we
+make the simplifying assumption that the block limit is the number of metaslabs
+on the system. That is not very unreasonable to begin with, as it is discussed in
+a future section, and it allows us to focus on the flushing algorithm. Before that
+happens though, it is helpful to define a more abstract model on how log spacemap
+blocks are deleted on a running system.</p>
+
+<p>The model goes like this: At TXG <code>T</code>, a group of metaslabs <code>G</code> is flushed and the
+changes of all the metaslabs in the pool are written in a log spacemap <code>S</code>.
+Metaslabs picked for group <code>G</code> that will be flushed, are always chosen in an ordered
+fashion from oldest-flushed to recently-flushed from all the metaslabs in the pool.
+The idea here is that in theory the oldest-flushed had enough time to accumulate
+changes and utilize its blocksize better when we flush it than a metaslab that was
+just flushed and doesn&rsquo;t have unflushed changes. As TXGs pass, more metaslabs are
+flushed and entries from <code>S</code> become obsolete. At some point, the system does a full
+circle around the metaslabs and has flushed each one of them. At that point it is
+guaranteed that all blocks from <code>S</code> are obsolete, and <code>S</code> can be destroyed.</p>
+
+<p>The simplest example of the above model is a hypothetical pool with 10 metaslabs.
+At TXG 1, we flush metaslab 1 and log all the changes of all metaslabs in log
+spacemap 1. At TXG 2 we flush metaslab 2, at TXG 3 we flush metaslab 3, ..etc.
+By TXG 11, we have flushed all the metaslabs once, so we start flushing again
+from  metaslab 1. By that time, even in the worst case that all metaslabs were
+touched in TXG 1 and all have entries in log 1, all the entries from log 1 are
+obsolete, because between TXG 1 and 10, we flushed all our metaslabs. Thus we
+can get rid of log 1 and all of its blocks.</p>
+
+<p>So with the above model in mind we are ready to start coming up with heuristics:</p>
+
+<h4 id="limit-only-heuristic">* Limit-Only Heuristic</h4>
+
+<p>The simplest heuristic would be to just let the limit do the work. In other words,
+whenever the limit is exceeded, keep flushing metaslabs until enough blocks are
+destroyed and the system is again below the limit.</p>
+
+<p>The problem with this approach is visible through the graphs below.
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/lsm_limit_problem.png" width="75%" height="50%"/>
+</p>
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/lsm_limit_problem2.png" width="75%" height="50%"/>
+</p></p>
+
+<p>These graphs are part from a larger experiment where we were simulating a pool with
+~330 metaslabs (and therefore a block limit of about the same size). The issue here
+is that no flushing takes place until it is really late, and at that point the majority
+of the metaslabs are flushed at once. This is obviously far from the ideal.</p>
+
+<h4 id="average-block-and-average-metaslab-heuristic">* Average Block and Average Metaslab Heuristic</h4>
+
+<p>A better heuristic would take into account the flushing history or the amount of log
+blocks accumulated so far. Two simple heuristics derived by those ideas are the
+following:</p>
+
+<ul>
+<li>Average Metaslabs-Per-Log Heuristic</li>
+</ul>
+
+<pre><code>if block limit is exceeded:
+    keep flushing until we go below the limit
+else:
+    flush X number of metaslabs
+        where X is (# of metaslabs) / (# of logs)
+</code></pre>
+
+<p>The attempt here is to look at the amount of flushing that the system has been doing
+on average each TXG. Then flush that same amount whenever there is no pressure from
+the block limit.</p>
+
+<ul>
+<li>Average Blocks-Per-Log Heurstisic</li>
+</ul>
+
+<pre><code>if block limit is exceeded:
+    keep flushing until we go below the limit
+else:
+    flush X number of metaslabs
+        where X is (total # of log blocks) / (# of logs)
+</code></pre>
+
+<p>The idea behind this heuristic is that the system tries to model flushing after
+the average incoming rate of log blocks per TXG, and thus to flush more when there
+are many blocks in each log in our history and less when there aren&rsquo;t many.</p>
+
+<p>Both of the above heuristics are problematic. Average Metaslabs-Per-Log is completely
+disconnected from the concept of the history of incoming log block rate which can
+cause problems if the incoming rate is highly variable. On the other hand, Average
+Blocks-Per-Log is based on this concept but completely misses the concept of the
+metaslab flushing distribution over the log spacemap history. This makes the heuristic
+susceptible to the same problems of the Limit-Only heuristic where there are spikes in
+the flushing behavior because a lot of metaslabs need to be flushed just to destroy
+a few blocks.</p>
+
+<h4 id="running-sums-heuristic">* Running Sums Heuristic</h4>
+
+<p>The ideal flushing algorithm takes into consideration the following parameters when
+deciding how many metaslabs to flush:</p>
+
+<ol>
+<li>The difference between the total number of log blocks and the block limit.</li>
+<li>The current incoming rate.</li>
+<li>The distribution of metaslab flushed over the log spacemaps.</li>
+<li>The distribution of log blocks over the log spacemaps.</li>
+</ol>
+
+<p>One design of such an algorithm is the Running Sums heuristic. The main idea behind
+the heuristic is knowing the answer to the question of &ldquo;How many metaslabs do we need
+to flush in order to get rid of X log spacemap blocks?&rdquo; at any given time. This
+can be answered by iterating backwards from the oldest log spacemap to the newest
+one and looking at their metaslab and block counts.</p>
+
+<p>Taking the picture below as an example, the answer of how many metaslabs we need to
+flush in order to get rid of 6 log spacemap blocks, is 2. If we wanted to get rid of
+8 or 9 or 10 blocks, then we would need to flush 5 metaslabs.</p>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/rsum_example.png" width="75%" height="50%"/>
+</p>
+
+<p>The more blocks we need to get rid of, the longer the iteration over the log
+history, over which we basically keep a running sum of the amount of log blocks
+that we can flush based on the running sum of metaslabs flushed over each log
+spacemap. This captures the essence of points [3] and [4] of our picture of the
+ideal flushing algorithm.</p>
+
+<p>With this in mind, the actual behavior of the heuristic works like this. The
+heuristic projects the incoming rate of the current TXG into the future and
+attempts to approximate how many metaslabs it needs to flush now in order to
+avoid exceeding the block limit in different points in the future. These
+projections are made under the assumption that the incoming rate would stay
+the same in the future TXGs projected and that the algorithm would be flushing
+the same number of metaslabs every TXG. Once that is done, the heuristic chooses
+the maximum number of flushes from all these estimates to be on the safe side.
+These projections exemplify how points [1] and [2] come into play.</p>
+
+<p>The following picture illustrates an example run of the algorithm.</p>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/rs_heuristic.png" width="100%" height="75%"/>
+</p>
+
+<h4 id="towards-an-implementation-running-sums-with-a-summary">~ Towards An Implementation (Running Sums with a Summary)</h4>
+
+<p>The above heuristic works great in theory and beats any other heuristic that we&rsquo;ve
+come up with in simulations. Unfortunately, there are still some rough edges when
+it comes to implementing this solution into ZFS. One of them is the assumption that
+we know the incoming rate of log blocks in the current TXG. This is a bit conflicting
+in and of itself as we are not able to tell how many log blocks we need to write
+in the current TXG if the current TXG is not over. Thus, we end up looking at a few
+(currently 5) TXGs in the past and taking their average as a simple estimation of
+the incoming rate for the current TXG.</p>
+
+<p>Another important issue is the number of logs that we have to iterate for this
+heuristic. The heuristic runs every TXG in syncing context which could potentially
+induce a lot of overhead in the system&rsquo;s runtime. For this reason, we always maintain
+a summary table of log blocks and metaslab counts between TXGs and iterate over that,
+instead of the actual log spacemaps. The tradeoff here is basically giving up some
+accuracy on our flushing estimates for a decrease in the runtime of the heuristic.
+That said, trying out the algorithm with and without a summary in a simulation
+yield very similar results in flushing behavior. Below you can see the summary
+of the log history from the previous section.</p>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/log_summary.png" width="75%" height="50%"/>
+</p>
+
+<hr />
+
+<p>All of the above heuristics and their behavior were compared in simulations
+run in the following simulator:</p>
+
+<p><a href="https://github.com/sdimitro/zfas">ZFAS on Github</a></p>
+
+<p>Feel free to give it a run. Unfortunately this was a side-project, so the project&rsquo;s
+documentation didn&rsquo;t get the love it deserved. That said, reading the code should
+be straightforward.</p>
+
+<hr />
+
+<h4 id="reconsidering-the-hard-limit-for-our-block-heuristic">~ Reconsidering the hard limit for our block heuristic</h4>
+
+<p>The Running Sums heuristic makes the decision of the hard limit of log blocks more
+critical than before, as the heuristic itself adapts its flushing behavior based
+on the distance between the current number of log blocks and the limit.</p>
+
+<p>In other words, the value of the limit affects the flushing algorithm, with higher
+values flushing metaslabs less often (doing less I/Os) per TXG and lower values
+flushing metaslabs more aggressively with the upside of saving overheads when loading
+the pool after a crash. Another factor in this tradeoff is that flushing less often
+can potentially lead to better utilization of the metaslab spacemap&rsquo;s block size as
+we accumulate more changes per flush.</p>
+
+<p>Given that the limit indirectly controls the flush rate (metaslabs flushed per TXG)
+we decided to implement it as a tunable expressed as a percentage in terms of the
+number of metaslabs in the pool. We decided to make this tunable to be 4 times the
+number of metaslabs in the pool with the following assumptions in mind:</p>
+
+<ul>
+<li>Assuming a constant flush rate and a constant incoming rate of log blocks it is
+reasonable to expect that the amount of obsolete entries changes linearly from TXG
+to TXG (e.g. the oldest log should have the most obsolete entries, and the most
+recent one the least). With this we can say that, at any given time, about half of
+the entries in the whole spacemap log are obsolete. Thus, for every two entries for
+a metaslab in the log space map, only one of them is valid and actually makes it to
+the metaslab&rsquo;s space map. That gives us a factor of 2.</li>
+</ul>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/half_obsolete.png" width="75%" height="50%"/>
+</p>
+
+<ul>
+<li>Each entry in the log spacemap is guaranteed to be two words while entries in
+metaslab spacemaps are generally single-word. Which gives us another factor of 2.</li>
+</ul>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/single_vs_double.png" width="100%" height="75%"/>
+</p>
+
+<ul>
+<li>Even if [1] and [2] are slightly less than a factor of 2 each in reality, we
+haven&rsquo;t taken into account any consolidation of segments from the log spacemap to
+the unflushed range trees nor their history (e.g. a segment being allocated, then
+freed, then allocated again means 3 log spacemap entries but 0 metaslab space map
+entries).</li>
+</ul>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/consolidation_example.png" width="50%" height="50%"/>
+</p>
+
+<p>The above assumptions are workload dependent. For example, we&rsquo;ve seen a factor of
+ ~1.8 non-obsolete log space map entries per metaslab entry, which could make the
+case to set the default of the tunable to be 6 times the number of metaslabs. Again,
+taking the conservative approach we kept that factor to 4.</p>
+
+<h4 id="limiting-the-value-of-the-block-limit">~ &ldquo;Limiting&rdquo; the value of the block limit</h4>
+
+<p>In large pools with many metaslabs the limit of the block heuristic can easily
+get out of hand which could make import times after crashes painful. Thus,
+regardless of the number of metaslabs in a system there needs to be an upper
+bound to the block limit and therefore to the import time overhead. At the same
+time, the bound should be set with caution because if it is too low it could
+penalize performance on SSDs (the idea being that SSDs can have a significantly
+higher incoming rate of log blocks and thus flush more often than HDDs under the
+same block limit).</p>
+
+<p>Assuming that 1TB SSDs become the standard (if they are not already?) a pool with
+such a drive should have ~64K metaslabs, thus according to our scheme of factor
+of 4, the block limit should be 256K log blocks.</p>
+
+<p>Now assuming a steady incoming rate of ~200 log blocks per TXG on such an SSD, then
+the pool should be flushing:</p>
+
+<p><code>(log blocks per TXG / [(log block size) / (metaslab spacemap size)] / block limit factor)</code></p>
+
+<p>or</p>
+
+<p><code>200 / 2 / 4 = 25</code></p>
+
+<p>25 metaslabs per TXG in order to stay under the limit. Thus, if we were to
+hypthetically get rid of the whole spacemap log with that flushing rate it would
+take 2560 TXGs <code>[= 64K metaslabs / 25 metaslabs flushed per TXG]</code> (this is
+basically how many TXGs it would take us to flush all the metaslabs in the pool).
+In a span of that many TXGs and the steady incoming rate stated above, the
+culmulative size of all our log spacemaps should be
+<code>[2560 TXGs * 200 log blocks per TXG =]</code> 512K log blocks.</p>
+
+<p>This means that if the log block limit is less than 512K, the system will flush
+more than 1 metaslab per log block. We decided to default the limit to half of
+that (256K), as import times would take a huge hit for HDDs at this point. This
+makes the above SSD scenario flush 2 metaslabs per log block (or 1 metaslab per
+half log block if you prefer), which should theoretically still be fine for an
+SSD.</p>
+
+<p>Finally, there is a need for a lower bound in the block limit for lower-end systems
+with small pools and a small number of metaslabs. The problem here is that if the
+number of metaslabs is small and the incoming rate is high, the system may end up
+flushing all the metaslabs every TXG. Thus, we don&rsquo;t allow the limit be less than
+1000 log blocks. (The number was decided based on a theoretical pool with a single
+small vdev that can reach 100 IOPs and its target import time is 10 seconds at
+worst).</p>
+
+<h4 id="performance-results">~ Performance Results</h4>
+
+<p>Below are the graphs displaying the performance improvements of this optimization
+from a 5-day experiment. The experiment involved 2 pools whose workloads were
+random-writes, with one of them having the feature enabled. We left the experiment
+to run long enough so both of the pools would reach a steady state and high levels
+of fragmentation (both pools reached 91~92% fragmentation at their steady states).
+The graphs display the userland IOPs reached by the pool per second. This is
+the most practical metric for such an experiment as more userland IOPs means more
+work done for your applications.</p>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/5_day_chart.png" width="100%" height="100%"/>
+</p>
+
+<p>The above graph verifies that the pools had reached their steady state (no
+fluctuations on IOPs). The graph below emphasizes the last 10 hours of the experiment:</p>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/10hr_chart.png" width="100%" height="100%"/>
+</p>
+
+<p>For those last 10 hours the average IOPs for the stock bits were ~596 IOPs. On
+the other hand, the pool with the log spacemap enabled had an average of ~837
+IOPs. For this experiment the log spacemap optimization gave a ~40.5% improvement
+over the stock bits on a steady state under high fragmentation.</p>
+
+<h4 id="verifying-our-assumptions">~ Verifying our assumptions</h4>
+
+<p>Earlier while considering the limit to our block heuristic we made the assumption
+that half of the entries in the log are obsolete. For completeness, the graphs
+below verify this hypothesis under our experiment:</p>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/obs_chart.png" width="100%" height="100%"/>
+</p>
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/obs_ratio_chart.png" width="80%" height="80%"/>
+</p>
+
+<p>As for consolidation (how many log spacemap segments do we have per metaslab
+spacemap segments), we found the ratio to be ~1.87, after sampling a few metaslabs.</p>
+
+<h4 id="analysis-on-a-running-system">~ Analysis on a running system</h4>
+
+<p>Even though we tried our best to provide good defaults for this feature and avoid
+any performance pathologies that we could think of, we can&rsquo;t really foresee every
+workload that a pool with this feature enabled will experience. As a result, we
+made sure to implement a lot of introspection in the behavior of the feature.</p>
+
+<p><code>zdb</code> can now print:
+* the TXG where each metaslab was last flushed</p>
+
+<pre><code>$ sudo zdb rpool
+...
+        metaslab      1   offset     20000000   spacemap     58   free     496M
+        On-disk histogram:              fragmentation 7
+                          9:      8 *******
+                         10:      6 *****
+                         11:      4 ****
+                         12:      3 ***
+                         13:      4 ****
+                         14:      8 *******
+                         15:     38 ******************************
+                         16:     28 **********************
+                         17:     51 ****************************************
+                         18:     34 ***************************
+                         19:     28 **********************
+                         20:     23 *******************
+                         21:     18 ***************
+                         22:      5 ****
+                         23:      5 ****
+                         24:      6 *****
+                         25:      1 *
+                         26:      1 *
+space map object 58:
+  smp_length = 0x2d1b0
+  smp_alloc = 0x1016800
+        Flush data:
+        unflushed txg=23350   # &lt;----- HERE
+...
+</code></pre>
+
+<ul>
+<li><p>the contents of each log spacemap</p>
+
+<pre><code>$ sudo zdb -mmmm rpool
+...
+Log Space Maps in Pool:
+Log Spacemap object 23569 txg 23357
+space map object 23569:
+smp_length = 0x13a8
+smp_alloc = 0xfffffffffff30200
+        [     0] ALLOC: txg 23357 pass 1
+        [     1]    A  range: 0187f53e00-0187f55e00  size: 002000 vdev: 000000 words: 2
+        [     2]    A  range: 0195d49e00-0195d4be00  size: 002000 vdev: 000000 words: 2
+        [     3] FREE: txg 23357 pass 1
+        [     4]    F  range: 0187cd5e00-0187cd7e00  size: 002000 vdev: 000000 words: 2
+        [     5]    F  range: 0195d43c00-0195d44400  size: 000800 vdev: 000000 words: 2
+        [     6]    F  range: 0195d44600-0195d45800  size: 001200 vdev: 000000 words: 2
+        [     7]    F  range: 0195d4aa00-0195d4ac00  size: 000200 vdev: 000000 words: 2
+        [     8] ALLOC: txg 23357 pass 1
+        [     9]    A  range: 010fccfc00-010fcd6400  size: 006800 vdev: 000000 words: 2
+        [    10]    A  range: 0116f94a00-0116fd3600  size: 03ec00 vdev: 000000 words: 2
+        [    11] FREE: txg 23357 pass 1
+        [    12]    F  range: 0100000000-0100010000  size: 010000 vdev: 000000 words: 2
+        [    13]    F  range: 010fc18c00-010fc21400  size: 008800 vdev: 000000 words: 2
+        [    14]    F  range: 010fc22400-010fc31400  size: 00f000 vdev: 000000 words: 2
+        [    15]    F  range: 010fc37c00-010fc46c00  size: 00f000 vdev: 000000 words: 2
+        [    16]    F  range: 0114a32600-0114a44600  size: 012000 vdev: 000000 words: 2
+...
+</code></pre></li>
+
+<li><p>the amount of valid (non-obsolete) entries for each log spacemap</p>
+
+<pre><code>$ sudo zdb -vvvv rpool
+Log Space Map Obsolete Entry Statistics:
+0        valid entries out of 115      - txg 23315
+0        valid entries out of 110      - txg 23316
+0        valid entries out of 182      - txg 23317
+0        valid entries out of 172      - txg 23318
+22       valid entries out of 210      - txg 23319
+13       valid entries out of 121      - txg 23320
+13       valid entries out of 107      - txg 23321
+12       valid entries out of 112      - txg 23322
+24       valid entries out of 170      - txg 23323
+30       valid entries out of 160      - txg 23324
+30       valid entries out of 151      - txg 23325
+35       valid entries out of 232      - txg 23326
+15       valid entries out of 115      - txg 23327
+26       valid entries out of 101      - txg 23328
+43       valid entries out of 158      - txg 23329
+48       valid entries out of 210      - txg 23330
+23       valid entries out of 99       - txg 23331
+26       valid entries out of 110      - txg 23332
+46       valid entries out of 114      - txg 23333
+55       valid entries out of 124      - txg 23334
+67       valid entries out of 154      - txg 23335
+134      valid entries out of 242      - txg 23336
+...
+</code></pre></li>
+</ul>
+
+<p>Some known <code>mdb</code> dcmds were extended and new ones where introduced:</p>
+
+<ul>
+<li><code>::spa -m</code> and <code>::vdev -M</code> have a new column called UCMU (stands for Unflushed Changes Memory Usage).</li>
+</ul>
+
+<pre><code>&gt; ::spa -m
+ADDR                 STATE NAME
+ffffff1975b30000    ACTIVE apollo
+
+    ADDR             STATE     AUX          DESCRIPTION
+    ffffff19689be000 HEALTHY   -            root
+    ffffff1960e51000 HEALTHY   -              /dev/dsk/c2t4d0s0
+        ADDR                 ID               OFFSET       FREE       FRAG       UCMU
+        ffffff1c3598fb40      0                    0       480M        79%      98.6K
+        ffffff1a01aa4040      1             20000000       445M        80%       115K
+        ffffff19b3e78980      2             40000000       431M        79%      69.0K
+        ffffff1c35d1fb80      3             60000000       441M        72%       119K
+        ffffff1c35a4b6c0      4             80000000       420M        82%       101K
+        ....
+&gt; ffffff038429e000::vdev -M
+ADDR             STATE     AUX          DESCRIPTION
+ffffff038429e000 HEALTHY   -            /dev/dsk/c2t1d0s0
+    ADDR                FRAG      UCMU
+    ffffff03da3b5000      0%       256
+    ...
+</code></pre>
+
+<ul>
+<li><code>::spa_space</code> also includes unflushed changes</li>
+</ul>
+
+<pre><code>&gt; ffffff1975b30000::spa_space
+dd_space_towrite = 0M 10865M 7926M 0M
+dd_phys.dd_used_bytes = 53505M
+dd_phys.dd_compressed_bytes = 53202M
+dd_phys.dd_uncompressed_bytes = 154736M
+ms_allocmap = 0M 717M 0M 0M
+ms_checkpointing = 0M
+ms_freeing = 707M
+ms_freed = 0M
+ms_unflushed_frees = 4665M
+ms_unflushed_allocs = 5175M
+ms_allocatable = 14454M
+ms_deferspace = 2173M
+current avail = 150270M
+</code></pre>
+
+<ul>
+<li><code>::logsm_stats</code> to print the table and summary of the block heuristic</li>
+</ul>
+
+<pre><code>&gt; ::walk spa |::logsm_stats
+Log Entries:
+txg     blks    ms      obj
+8235    10      7       8679
+8236    11      8       8680
+8237    10      9       8681
+8238    10      3       8682
+...
+
+Summary Entries:
+start-txg       blks    ms
+8232            10      7
+8236            41      22
+8240            40      12
+...
+</code></pre>
+
+<p>Experimental kstats were also added. Once stabilized these metrics can be used
+by monitoring tools.</p>
+
+<pre><code>$ kstat -m zfs -c pool
+module: zfs                             instance: 0
+name:   0x22557e79f5e7be7b              class:    pool
+        crtime                          35.210331320
+        metadata_blocks                 29900
+        metaslab_flushes                29992
+        pool_name                       rpool
+        snaptime                        1494585.398219727
+        txgs                            30697
+</code></pre>
+
+<p>And of course a DTrace script (see addendum).</p>
+
+<h4 id="acknowledgements">~ Acknowledgements</h4>
+
+<p>I am grateful to Matt Ahrens and the management at Delphix that gave me the opportunity
+to work on this project, my team for their feedback and support, and the following
+people that went the extra mile in helping me edit all of my material and present it:
+John Gallagher, Sara Hartse, Amanda Merriweather, and my sisters Dina and Margarita.</p>
+
+<hr />
+
+<h4 id="addendum">~ Addendum:</h4>
+
+<p>Log Spacemap Flushing Stats:</p>
+
+<pre><code>$ cat ~/scripts/logsm_stats.xd
+#!/usr/sbin/dtrace -Cqs
+
+spa_t *spa;
+uint64_t log_sm_blksz;
+
+uint64_t txg;
+uint64_t nblocks_added;
+uint64_t total_nblocks;
+uint64_t total_nlogs;
+uint64_t metaslabs_flushed;
+
+spa_sync:entry
+/!spa &amp;&amp; stringof(args[0]-&gt;spa_name) == $$1/
+{
+	spa = args[0];
+	log_sm_blksz = (1 &lt;&lt; 17); /* 128K */
+}
+
+spa_sync:entry
+/spa &amp;&amp; args[0] == spa/
+{
+	txg = args[1];
+}
+
+metaslab_flush_update:entry
+/spa &amp;&amp; args[0]-&gt;ms_group-&gt;mg_vd-&gt;vdev_spa == spa/
+{
+	metaslabs_flushed++;
+}
+
+space_map_close:entry
+/spa &amp;&amp; args[0] == spa-&gt;spa_syncing_log_sm/
+{
+	total_nlogs = spa-&gt;spa_sm_logs_by_txg.avl_numnodes;
+	nblocks_added =
+	    spa-&gt;spa_syncing_log_sm-&gt;sm_phys-&gt;smp_length / log_sm_blksz;
+
+	rem = spa-&gt;spa_syncing_log_sm-&gt;sm_phys-&gt;smp_length % log_sm_blksz;
+	if (rem != 0) {
+		nblocks_added += 1;
+	}
+}
+
+spa_sync:return
+/spa &amp;&amp; entry-&gt;args[0] == spa/
+{
+	total_nblocks = spa-&gt;spa_unflushed_stats.sus_nblocks;
+
+	printf(&quot;txg %u | %u +blocks | %u total_blocks | %u logs | %u flushed | %Y\n&quot;,
+	    txg, nblocks_added, total_nblocks, total_nlogs, metaslabs_flushed, walltimestamp);
+
+	txg               = 0;
+	nblocks_added     = 0;
+	total_nblocks     = 0;
+	total_nlogs       = 0;
+	metaslabs_flushed = 0;
+}
+
+$ sudo logsm_stats.xd
+txg 11176 | 13 +blocks | 1462 total_blocks | 108 logs | 21 flushed | 2018 Feb  5 15:35:03
+txg 11177 | 12 +blocks | 1460 total_blocks | 108 logs | 18 flushed | 2018 Feb  5 15:35:19
+txg 11178 | 13 +blocks | 1457 total_blocks | 108 logs | 16 flushed | 2018 Feb  5 15:35:43
+txg 11179 | 13 +blocks | 1445 total_blocks | 107 logs | 19 flushed | 2018 Feb  5 15:36:08
+txg 11180 | 15 +blocks | 1448 total_blocks | 107 logs | 16 flushed | 2018 Feb  5 15:36:35
+txg 11181 | 13 +blocks | 1446 total_blocks | 107 logs | 19 flushed | 2018 Feb  5 15:36:57
+txg 11182 | 14 +blocks | 1430 total_blocks | 106 logs | 17 flushed | 2018 Feb  5 15:37:24
+txg 11183 | 16 +blocks | 1446 total_blocks | 107 logs | 8 flushed | 2018 Feb  5 15:38:00
+txg 11184 | 16 +blocks | 1449 total_blocks | 107 logs | 20 flushed | 2018 Feb  5 15:38:29
+txg 11185 | 16 +blocks | 1465 total_blocks | 108 logs | 4 flushed | 2018 Feb  5 15:39:02
+...
+</code></pre>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io""ZFS Log Spacemap - The Flushing Algorithm";
+	   this.page.identifier = "ZFS Log Spacemap - The Flushing Algorithm";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script>
+(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+ga('create', 'UA-78963448-1', 'auto');
+ga('send', 'pageview');
+</script>
+
+

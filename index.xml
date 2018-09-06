@@ -6,10 +6,19 @@
     <description>Recent content on Core Dump</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Sat, 18 Aug 2018 12:00:00 -0600</lastBuildDate>
+    <lastBuildDate>Wed, 05 Sep 2018 12:00:00 -0600</lastBuildDate>
     
 	<atom:link href="https://sdimitro.github.io/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>ZFS Log Spacemap - The Flushing Algorithm</title>
+      <link>https://sdimitro.github.io/post/zfs-lsm-flushing/</link>
+      <pubDate>Wed, 05 Sep 2018 12:00:00 -0600</pubDate>
+      
+      <guid>https://sdimitro.github.io/post/zfs-lsm-flushing/</guid>
+      <description>~ Introduction During last year&amp;rsquo;s OpenZFS Summit I presented the motivation and the internals of the Log Spacemap project - a project that Matt started a long time ago and we ended up finishing together the beginning of this year. In order to fully grasp the context of this post, I highly recommend that you watch last year&amp;rsquo;s presentation first. Regardless, there is still a brief overview in this post, as I believe that the subject discussed can be presented in a more abstract manner.</description>
+    </item>
     
     <item>
       <title>ZFS Flamegraph Analysis Example [μ]</title>
