@@ -17,7 +17,7 @@
       <pubDate>Wed, 05 Sep 2018 12:00:00 -0600</pubDate>
       
       <guid>https://sdimitro.github.io/post/zfs-lsm-flushing/</guid>
-      <description>~ Introduction During last year&amp;rsquo;s OpenZFS Summit I presented the motivation and the internals of the Log Spacemap project - a project that Matt started a long time ago and we ended up finishing together the beginning of this year. In order to fully grasp the context of this post, I highly recommend that you watch last year&amp;rsquo;s presentation first. Regardless, there is still a brief overview in this post, as I believe that the subject discussed can be presented in a more abstract manner.</description>
+      <description>~ Introduction During last year&amp;rsquo;s OpenZFS Summit I presented the motivation and the internals of the Log Spacemap project - a project that Matt started a long time ago and we ended up finishing together the beginning of this year. In order to fully grasp the context of this post, I highly recommend that you watch last year&amp;rsquo;s presentation first (link). Regardless, there is still a brief overview in this post, as I believe that the subject discussed can be presented in a more abstract manner.</description>
     </item>
     
     <item>

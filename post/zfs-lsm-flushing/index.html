@@ -26,8 +26,9 @@
 of the Log Spacemap project - a project that Matt started a long time ago and
 we ended up finishing together the beginning of this year. In order to fully
 grasp the context of this post, I highly recommend that you watch last year&rsquo;s
-presentation first. Regardless, there is still a brief overview in this post,
-as I believe that the subject discussed can be presented in a more abstract manner.</p>
+presentation first (<a href="https://www.youtube.com/watch?v=jj2IxRkl5bQ">link</a>).
+Regardless, there is still a brief overview in this post, as I believe that the
+subject discussed can be presented in a more abstract manner.</p>
 
 <p>This post is about the flushing algorithm of the Log Spacemap project that was
 left as an open question during the aforementioned presentation. It describes the
@@ -40,7 +41,7 @@ that feature to analyze its behavior.</p>
 
 <p>Log spacemaps are an optimization in ZFS metadata allocation for pools whose workloads
 are primarily random-writes (e.g. pools used for databases, VMs, etc..) with high
-levels of fragmentations. To give some background, each vdev in ZFS is divided into
+levels of fragmentation. To give some background, each vdev in ZFS is divided into
 equal parts called metaslabs. ZFS represents each metaslab on-disk with a structure
 called a spacemap (an append-only log of allocations and frees) and in-memory with an
 AVL tree where each node represents a range of free space.</p>
@@ -55,7 +56,7 @@ Instead of doing that, a pool with the Log Spacemap feature enabled, logs the
 changes of all metaslabs in-memory, in 2 new AVL trees per metaslab (called
 <code>unflushed_allocs</code> and <code>unflushed_frees</code>). It also issues a single I/O with all the
 metaslab changes in a pool-wide spacemap on-disk (the <code>log spacemap</code>), for persistence.
-Persistance is needed specifically for the case that a crash happens and the pool
+Persistence is needed specifically for the case that a crash happens and the pool
 has to reconstruct its unflushed state (e.g. repopulated <code>unflushed_allocs</code> and
 <code>unflushed_frees</code> of each metaslab).</p>
 
@@ -68,38 +69,44 @@ following reasons:</p>
 <li>Decrease overheads in the import time after a crash.</li>
 </ol>
 
-<p>[1] happens as the flushing a metaslab means flushing all the segments of <code>unflushed_allocs</code>
-and <code>unflushed_frees</code> in-memory to the metaslab&rsquo;s spacemap on-disk. For [2] the
-situation is a bit more complicated. As TXGs pass and we flush metaslabs from
-oldest-flushed to recently-flushed, log spacemaps of old TXGs become obsolete.
-A log spacemap is said to be obsolete when all its entries have made it to their
-respective metaslab spacemaps. Obsolete log spacemaps can be safely destroyed as
-they are no longer relevant. Obsolete logs are destroyed every TXG so in the
-case of an import after a crash we have less log spacemaps to read in order to
-reconstruct the unflushed state of the pool.</p>
+<p>[1] happens as flushing a metaslab means writing all its segments from <code>unflushed_allocs</code>
+and <code>unflushed_frees</code> to the metaslab&rsquo;s spacemap on-disk, after which we can discard
+the in-memory unflushed trees. For [2] the situation is a bit more complicated.
+As TXGs pass and we flush metaslabs from oldest-flushed to recently-flushed, log
+spacemaps of old TXGs become obsolete. A log spacemap is said to be obsolete when
+all its entries have made it to their respective metaslab spacemaps. Obsolete log
+spacemaps can be safely destroyed as they are no longer relevant. Obsolete logs
+are destroyed every TXG so in the case of an import after a crash we have fewer
+log spacemaps to read in order to reconstruct the unflushed state of the pool.</p>
+
+<p>The decision of flushing metaslabs in order, from oldest to recently flushed, is
+essential here as it helps us determine when a log spacemap becomes obsolete.
+Without having to look at its actual entries, we can be certain that a log spacemap
+is obsolete if all the metaslabs in the pool have been flushed since the TXG that
+the spacemap was created. Thus, flushing the oldest-flushed metaslab is always
+best for helping to delete old log spacemaps.</p>
 
 <h4 id="why-is-the-flushing-algorithm-important">~ Why is the flushing algorithm important?</h4>
 
-<p>There are two aspects of the Log Spacemap feature that can be problematic if there
-is no explicit policy on how flushing is handled. The most straightforward one is
-memory usage. In this new world, each metaslab has 2 extra AVL trees that contain
-segments which are waiting to be flushed to their metaslab&rsquo;s spacemap. The more
-segments are held in memory like this, the bigger the pressure on the system. When
-we flush a metaslab, we flush all the segments from the aforementioned AVLs to disk,
-relieving some of this pressure.</p>
+<p>There are a few aspects of the Log Spacemap feature that can be problematic if
+there is no explicit policy on how flushing is handled. The most straightforward
+one is memory usage. In this new world, each metaslab has 2 extra AVL trees that
+contain segments which are waiting to be flushed to their metaslab&rsquo;s spacemap.
+The more segments are held in memory like this, the bigger the pressure on the
+system. When we flush a metaslab, we flush all the segments from the aforementioned
+AVLs to disk, relieving some of this pressure.</p>
 
-<p>The other aspect is the amount of blocks used for log spacemaps on-disk. Not only
-the amount of log spacemaps blocks shouldn&rsquo;t grow without a bound, but there should
-be an explicit limit to keep it in check. If no such limit exists there would be
-no bound to the overhead induced at import time after a crash. Flushing metaslabs
-often can help keep the log short. On the other hand, flushing too often defeats
-the purpose of the log spacemap feature.</p>
+<p>The other aspect is the amount of blocks used for log spacemaps on-disk. There
+should be an explicit limit to keep it in check. If no such limit exists there
+would be no bound to the overhead induced at import time after a crash. Flushing
+metaslabs often can help keep the log short. On the other hand, flushing too often
+defeats the purpose of the log spacemap feature.</p>
 
 <p>To summarize the above, the ideal flushing algorithm should:</p>
 
 <ol>
-<li>React when the memory usage of the feuture is getting out of hand.</li>
-<li>Don&rsquo;t flush metaslabs too often in order to minimize the # of I/Os issued.</li>
+<li>React when the memory usage of the feature is getting out of hand.</li>
+<li>Not flush metaslabs too often in order to minimize the # of I/Os issued.</li>
 <li>Flush metaslabs rarely enough so they utilize their I/O blocksize.</li>
 <li>Flush frequently enough so import times after crashing are not severely impacted.</li>
 <li>Behave in a consistent and predictable manner.</li>
@@ -120,10 +127,11 @@ are doing.</p>
 <p>The simplest approach to this is to ensure that the memory usage of the unflushed
 trees stays below a certain threshold. The threshold can be determined by an
 arbitrary hard limit (e.g. 1GB is the max amount of memory that can be used by
-unflushed changes), and an arbitrary percentage of the system&rsquo;s memory (e.g.
-unflushed changes should not take up more that 0.1% of the system&rsquo;s memory). From
-these two, we pick the lowest one as the threshold. Whenever the threshold is
-exceeded the system starts flushing metaslabs until it gets below it again.</p>
+all unflushed changes in the pool), and an arbitrary percentage of the system&rsquo;s
+memory (e.g. unflushed changes should not take up more that 0.1% of the system&rsquo;s
+memory). From these two, we pick the lowest one as the threshold. Whenever the
+threshold is exceeded the system starts flushing metaslabs until it gets below
+it again.</p>
 
 <h4 id="coming-up-with-a-block-heuristic">~ Coming up with a block heuristic</h4>
 
@@ -135,16 +143,13 @@ a future section, and it allows us to focus on the flushing algorithm. Before th
 happens though, it is helpful to define a more abstract model on how log spacemap
 blocks are deleted on a running system.</p>
 
-<p>The model goes like this: At TXG <code>T</code>, a group of metaslabs <code>G</code> is flushed and the
-changes of all the metaslabs in the pool are written in a log spacemap <code>S</code>.
-Metaslabs picked for group <code>G</code> that will be flushed, are always chosen in an ordered
-fashion from oldest-flushed to recently-flushed from all the metaslabs in the pool.
-The idea here is that in theory the oldest-flushed had enough time to accumulate
-changes and utilize its blocksize better when we flush it than a metaslab that was
-just flushed and doesn&rsquo;t have unflushed changes. As TXGs pass, more metaslabs are
-flushed and entries from <code>S</code> become obsolete. At some point, the system does a full
-circle around the metaslabs and has flushed each one of them. At that point it is
-guaranteed that all blocks from <code>S</code> are obsolete, and <code>S</code> can be destroyed.</p>
+<p>The model goes like this: At TXG <code>T</code>, the changes of all the metaslabs in the
+pool are written in a log spacemap <code>S</code> and a group of metaslabs <code>G</code> is flushed.
+Metaslabs in group <code>G</code> are always chosen in an ordered fashion from oldest-flushed
+to recently-flushed from all the metaslabs in the pool. As TXGs pass, more metaslabs
+are flushed and entries from <code>S</code> become obsolete. At some point, the system does a
+full circle around the metaslabs and has flushed each one of them. At that point it
+is guaranteed that all blocks from <code>S</code> are obsolete, and <code>S</code> can be destroyed.</p>
 
 <p>The simplest example of the above model is a hypothetical pool with 10 metaslabs.
 At TXG 1, we flush metaslab 1 and log all the changes of all metaslabs in log
@@ -157,11 +162,11 @@ can get rid of log 1 and all of its blocks.</p>
 
 <p>So with the above model in mind we are ready to start coming up with heuristics:</p>
 
-<h4 id="limit-only-heuristic">* Limit-Only Heuristic</h4>
+<h4 id="block-limit-only-heuristic">* Block Limit-Only Heuristic</h4>
 
 <p>The simplest heuristic would be to just let the limit do the work. In other words,
-whenever the limit is exceeded, keep flushing metaslabs until enough blocks are
-destroyed and the system is again below the limit.</p>
+whenever the block limit is exceeded, keep flushing metaslabs until enough blocks
+are destroyed and the system is again below the limit.</p>
 
 <p>The problem with this approach is visible through the graphs below.
 <p align="center">
@@ -174,12 +179,13 @@ destroyed and the system is again below the limit.</p>
 <p>These graphs are part from a larger experiment where we were simulating a pool with
 ~330 metaslabs (and therefore a block limit of about the same size). The issue here
 is that no flushing takes place until it is really late, and at that point the majority
-of the metaslabs are flushed at once. This is obviously far from the ideal.</p>
+of the metaslabs are flushed at once. This is far from the ideal. The heuristic is
+unpredictable and as a result, susceptible to many performance pathologies.</p>
 
 <h4 id="average-block-and-average-metaslab-heuristic">* Average Block and Average Metaslab Heuristic</h4>
 
 <p>A better heuristic would take into account the flushing history or the amount of log
-blocks accumulated so far. Two simple heuristics derived by those ideas are the
+blocks accumulated so far. Two simple heuristics derived from those ideas are the
 following:</p>
 
 <ul>
@@ -198,7 +204,7 @@ on average each TXG. Then flush that same amount whenever there is no pressure f
 the block limit.</p>
 
 <ul>
-<li>Average Blocks-Per-Log Heurstisic</li>
+<li>Average Blocks-Per-Log Heuristic</li>
 </ul>
 
 <pre><code>if block limit is exceeded:
@@ -239,9 +245,20 @@ to flush in order to get rid of X log spacemap blocks?&rdquo; at any given time.
 can be answered by iterating backwards from the oldest log spacemap to the newest
 one and looking at their metaslab and block counts.</p>
 
-<p>Taking the picture below as an example, the answer of how many metaslabs we need to
-flush in order to get rid of 6 log spacemap blocks, is 2. If we wanted to get rid of
-8 or 9 or 10 blocks, then we would need to flush 5 metaslabs.</p>
+<p>The picture below is an example of the log spacemaps in a pool at some TXG <code>T</code>. For
+each log spacemap, we know the number of blocks of the spacemap and the number of
+metaslabs flushed at the TXG that it was created. For the oldest log spacemap,
+the number of metaslabs flushed in the same TXG that it was created is also the
+number of metaslabs that need to be flushed in order for us to destroy it. In the
+example below this is 2 metaslabs. For the second oldest log spacemap, the number
+of metaslabs that need to be flushed in order for it to get destroyed, is the number
+of metaslabs metaslabs needed to destroy the previous log (the oldest one) plus the
+number of metaslabs that were flushed in the TXG that it was created. In our example,
+that is 5 metaslabs. And so on for the rest of the spacemaps. Doing the same calculations
+but in terms of number of log spacemap blocks instead of log spacemaps, the answer
+of how many metaslabs we need to flush in order to get rid of 6 log spacemap blocks,
+is 2. If we wanted to get rid of 8 or 9 or 10 blocks, then we would need to flush 5
+metaslabs.</p>
 
 <p align="center">
   <img src="https://sdimitro.github.io/img/lsm/rsum_example.png" width="75%" height="50%"/>
@@ -268,6 +285,18 @@ These projections exemplify how points [1] and [2] come into play.</p>
 <p align="center">
   <img src="https://sdimitro.github.io/img/lsm/rs_heuristic.png" width="100%" height="75%"/>
 </p>
+
+<p>Running a sample simulation of the algorithm in a hypothetical pool of 300
+metaslabs, with incoming blocks chosen randomly between 10 and 64 for a span of
+1000 TXGs (same setup as the Block Limit-Only heuristic), we see the following:</p>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/summary_flush_example.png" width="75%" height="70%"/>
+</p>
+
+<p>The maximum number of metaslabs ever flushed in a TXG was 24 and the average
+metaslabs flushed per TXG was 11. That&rsquo;s close to ~4% of the total number of
+metaslabs in the pool flushed each TXG on average (with the max being 8%).</p>
 
 <h4 id="towards-an-implementation-running-sums-with-a-summary">~ Towards An Implementation (Running Sums with a Summary)</h4>
 
@@ -322,8 +351,15 @@ we accumulate more changes per flush.</p>
 
 <p>Given that the limit indirectly controls the flush rate (metaslabs flushed per TXG)
 we decided to implement it as a tunable expressed as a percentage in terms of the
-number of metaslabs in the pool. We decided to make this tunable to be 4 times the
-number of metaslabs in the pool with the following assumptions in mind:</p>
+number of metaslabs in the pool. As for setting a default, the idea is the following:
+If the whole log were to be flushed, each metaslab would be flushed once. To make
+the most of each flush, we would want to write at least one whole block to each
+metaslab&rsquo;s spacemap. Thus, we want the amount of data in all the log spacemaps to
+to be at least equal to the number of metaslabs, in terms of metaslab spacemap
+blocks, when flushed.</p>
+
+<p>With that in mind, we decided to make this tunable to be 4 times the number of
+metaslabs in the pool with the following assumptions in mind:</p>
 
 <ul>
 <li>Assuming a constant flush rate and a constant incoming rate of log blocks it is
@@ -390,11 +426,11 @@ the pool should be flushing:</p>
 <p><code>200 / 2 / 4 = 25</code></p>
 
 <p>25 metaslabs per TXG in order to stay under the limit. Thus, if we were to
-hypthetically get rid of the whole spacemap log with that flushing rate it would
+hypothetically get rid of the whole spacemap log with that flushing rate it would
 take 2560 TXGs <code>[= 64K metaslabs / 25 metaslabs flushed per TXG]</code> (this is
 basically how many TXGs it would take us to flush all the metaslabs in the pool).
 In a span of that many TXGs and the steady incoming rate stated above, the
-culmulative size of all our log spacemaps should be
+cumulative size of all our log spacemaps should be
 <code>[2560 TXGs * 200 log blocks per TXG =]</code> 512K log blocks.</p>
 
 <p>This means that if the log block limit is less than 512K, the system will flush
@@ -462,40 +498,41 @@ any performance pathologies that we could think of, we can&rsquo;t really forese
 workload that a pool with this feature enabled will experience. As a result, we
 made sure to implement a lot of introspection in the behavior of the feature.</p>
 
-<p><code>zdb</code> can now print:
-* the TXG where each metaslab was last flushed</p>
+<p><code>zdb</code> can now print:</p>
+
+<ul>
+<li><p>the TXG where each metaslab was last flushed</p>
 
 <pre><code>$ sudo zdb rpool
 ...
-        metaslab      1   offset     20000000   spacemap     58   free     496M
-        On-disk histogram:              fragmentation 7
-                          9:      8 *******
-                         10:      6 *****
-                         11:      4 ****
-                         12:      3 ***
-                         13:      4 ****
-                         14:      8 *******
-                         15:     38 ******************************
-                         16:     28 **********************
-                         17:     51 ****************************************
-                         18:     34 ***************************
-                         19:     28 **********************
-                         20:     23 *******************
-                         21:     18 ***************
-                         22:      5 ****
-                         23:      5 ****
-                         24:      6 *****
-                         25:      1 *
-                         26:      1 *
+    metaslab      1   offset     20000000   spacemap     58   free     496M
+    On-disk histogram:              fragmentation 7
+                      9:      8 *******
+                     10:      6 *****
+                     11:      4 ****
+                     12:      3 ***
+                     13:      4 ****
+                     14:      8 *******
+                     15:     38 ******************************
+                     16:     28 **********************
+                     17:     51 ****************************************
+                     18:     34 ***************************
+                     19:     28 **********************
+                     20:     23 *******************
+                     21:     18 ***************
+                     22:      5 ****
+                     23:      5 ****
+                     24:      6 *****
+                     25:      1 *
+                     26:      1 *
 space map object 58:
-  smp_length = 0x2d1b0
-  smp_alloc = 0x1016800
-        Flush data:
-        unflushed txg=23350   # &lt;----- HERE
+smp_length = 0x2d1b0
+smp_alloc = 0x1016800
+    Flush data:
+    unflushed txg=23350   # &lt;----- HERE
 ...
-</code></pre>
+</code></pre></li>
 
-<ul>
 <li><p>the contents of each log spacemap</p>
 
 <pre><code>$ sudo zdb -mmmm rpool
