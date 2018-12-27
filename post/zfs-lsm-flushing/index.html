@@ -50,14 +50,14 @@ AVL tree where each node represents a range of free space.</p>
   <img src="https://sdimitro.github.io/img/lsm/lsm_metaslab.png" width="50%" height="50%"/>
 </p>
 
-<p>Due to the copy-on-write nature of ZFS, fragmented pools with random-write workloads,
+<p>Due to the copy-on-write nature of ZFS, fragmented pools with random-write workloads
 end up spending a lot of I/Os each TXG appending to the spacemap of each metaslab.
-Instead of doing that, a pool with the Log Spacemap feature enabled, logs the
+Instead of doing that, a pool with the Log Spacemap feature enabled logs the
 changes of all metaslabs in-memory, in 2 new AVL trees per metaslab (called
 <code>unflushed_allocs</code> and <code>unflushed_frees</code>). It also issues a single I/O with all the
 metaslab changes in a pool-wide spacemap on-disk (the <code>log spacemap</code>), for persistence.
 Persistence is needed specifically for the case that a crash happens and the pool
-has to reconstruct its unflushed state (e.g. repopulated <code>unflushed_allocs</code> and
+has to reconstruct its unflushed state (e.g. repopulate <code>unflushed_allocs</code> and
 <code>unflushed_frees</code> of each metaslab).</p>
 
 <p>As more blocks are accumulated in log spacemaps and more unflushed changes are
@@ -72,14 +72,14 @@ following reasons:</p>
 <p>[1] happens as flushing a metaslab means writing all its segments from <code>unflushed_allocs</code>
 and <code>unflushed_frees</code> to the metaslab&rsquo;s spacemap on-disk, after which we can discard
 the in-memory unflushed trees. For [2] the situation is a bit more complicated.
-As TXGs pass and we flush metaslabs from oldest-flushed to recently-flushed, log
-spacemaps of old TXGs become obsolete. A log spacemap is said to be obsolete when
-all its entries have made it to their respective metaslab spacemaps. Obsolete log
-spacemaps can be safely destroyed as they are no longer relevant. Obsolete logs
-are destroyed every TXG so in the case of an import after a crash we have fewer
+As TXGs pass and we flush metaslabs from oldest-flushed to recently-flushed in a
+round-robin fashion, log spacemaps of old TXGs become obsolete. A log spacemap is said
+to be obsolete when all its entries have made it to their respective metaslab spacemaps.
+Obsolete log spacemaps can be safely destroyed as they are no longer relevant. Obsolete
+logs are destroyed every TXG so in the case of an import after a crash we have fewer
 log spacemaps to read in order to reconstruct the unflushed state of the pool.</p>
 
-<p>The decision of flushing metaslabs in order, from oldest to recently flushed, is
+<p>The decision to flush metaslabs in order, from oldest to recently flushed, is
 essential here as it helps us determine when a log spacemap becomes obsolete.
 Without having to look at its actual entries, we can be certain that a log spacemap
 is obsolete if all the metaslabs in the pool have been flushed since the TXG that
@@ -106,7 +106,7 @@ defeats the purpose of the log spacemap feature.</p>
 
 <ol>
 <li>React when the memory usage of the feature is getting out of hand.</li>
-<li>Not flush metaslabs too often in order to minimize the # of I/Os issued.</li>
+<li>Avoid flushing metaslabs too often in order to minimize the # of I/Os issued.</li>
 <li>Flush metaslabs rarely enough so they utilize their I/O blocksize.</li>
 <li>Flush frequently enough so import times after crashing are not severely impacted.</li>
 <li>Behave in a consistent and predictable manner.</li>
@@ -119,7 +119,7 @@ rarely flush metaslabs. Regardless of whether this statement is true, crashes
 do happen. When they do, long import times mean more downtime. Thus, a pragmatic
 solution to this problem would be to design an algorithm that makes a calculated
 tradeoff in the amount of flushing that works well enough in the majority of the
-cases and potentially exposing a knob for expert users that really know what they
+cases and potentially exposes a knob for expert users that really know what they
 are doing.</p>
 
 <h4 id="dealing-with-memory-usage">~ Dealing with memory usage</h4>
@@ -140,7 +140,7 @@ blocks was discussed, so the log doesn&rsquo;t grow indefinitely. For this secti
 make the simplifying assumption that the block limit is the number of metaslabs
 on the system. That is not very unreasonable to begin with, as it is discussed in
 a future section, and it allows us to focus on the flushing algorithm. Before that
-happens though, it is helpful to define a more abstract model on how log spacemap
+happens though, it is helpful to define a more abstract model for how log spacemap
 blocks are deleted on a running system.</p>
 
 <p>The model goes like this: At TXG <code>T</code>, the changes of all the metaslabs in the
@@ -235,7 +235,7 @@ deciding how many metaslabs to flush:</p>
 <ol>
 <li>The difference between the total number of log blocks and the block limit.</li>
 <li>The current incoming rate.</li>
-<li>The distribution of metaslab flushed over the log spacemaps.</li>
+<li>The distribution of metaslabs flushed over the log spacemaps.</li>
 <li>The distribution of log blocks over the log spacemaps.</li>
 </ol>
 
@@ -270,7 +270,7 @@ that we can flush based on the running sum of metaslabs flushed over each log
 spacemap. This captures the essence of points [3] and [4] of our picture of the
 ideal flushing algorithm.</p>
 
-<p>With this in mind, the actual behavior of the heuristic works like this. The
+<p>With this in mind, the actual behavior of the heuristic works like this: The
 heuristic projects the incoming rate of the current TXG into the future and
 attempts to approximate how many metaslabs it needs to flush now in order to
 avoid exceeding the block limit in different points in the future. These
@@ -302,14 +302,14 @@ metaslabs in the pool flushed each TXG on average (with the max being 8%).</p>
 
 <p>The above heuristic works great in theory and beats any other heuristic that we&rsquo;ve
 come up with in simulations. Unfortunately, there are still some rough edges when
-it comes to implementing this solution into ZFS. One of them is the assumption that
+it comes to implementing this solution in ZFS. One of them is the assumption that
 we know the incoming rate of log blocks in the current TXG. This is a bit conflicting
 in and of itself as we are not able to tell how many log blocks we need to write
 in the current TXG if the current TXG is not over. Thus, we end up looking at a few
 (currently 5) TXGs in the past and taking their average as a simple estimation of
 the incoming rate for the current TXG.</p>
 
-<p>Another important issue is the number of logs that we have to iterate for this
+<p>Another important issue is the number of logs that we have to iterate over for this
 heuristic. The heuristic runs every TXG in syncing context which could potentially
 induce a lot of overhead in the system&rsquo;s runtime. For this reason, we always maintain
 a summary table of log blocks and metaslab counts between TXGs and iterate over that,
@@ -445,7 +445,7 @@ with small pools and a small number of metaslabs. The problem here is that if th
 number of metaslabs is small and the incoming rate is high, the system may end up
 flushing all the metaslabs every TXG. Thus, we don&rsquo;t allow the limit be less than
 1000 log blocks. (The number was decided based on a theoretical pool with a single
-small vdev that can reach 100 IOPs and its target import time is 10 seconds at
+small vdev that can reach 100 IOPS and its target import time is 10 seconds at
 worst).</p>
 
 <h4 id="performance-results">~ Performance Results</h4>
@@ -455,8 +455,8 @@ from a 5-day experiment. The experiment involved 2 pools whose workloads were
 random-writes, with one of them having the feature enabled. We left the experiment
 to run long enough so both of the pools would reach a steady state and high levels
 of fragmentation (both pools reached 91~92% fragmentation at their steady states).
-The graphs display the userland IOPs reached by the pool per second. This is
-the most practical metric for such an experiment as more userland IOPs means more
+The graphs display the userland IOPS reached by the pool per second. This is
+the most practical metric for such an experiment as more userland IOPS means more
 work done for your applications.</p>
 
 <p align="center">
@@ -464,15 +464,15 @@ work done for your applications.</p>
 </p>
 
 <p>The above graph verifies that the pools had reached their steady state (no
-fluctuations on IOPs). The graph below emphasizes the last 10 hours of the experiment:</p>
+fluctuations on IOPS). The graph below emphasizes the last 10 hours of the experiment:</p>
 
 <p align="center">
   <img src="https://sdimitro.github.io/img/lsm/10hr_chart.png" width="100%" height="100%"/>
 </p>
 
-<p>For those last 10 hours the average IOPs for the stock bits were ~596 IOPs. On
+<p>For those last 10 hours the average IOPS for the stock bits were ~596 IOPS. On
 the other hand, the pool with the log spacemap enabled had an average of ~837
-IOPs. For this experiment the log spacemap optimization gave a ~40.5% improvement
+IOPS. For this experiment the log spacemap optimization gave a ~40.5% improvement
 over the stock bits on a steady state under high fragmentation.</p>
 
 <h4 id="verifying-our-assumptions">~ Verifying our assumptions</h4>
@@ -641,7 +641,7 @@ current avail = 150270M
 </code></pre>
 
 <ul>
-<li><code>::logsm_stats</code> to print the table and summary of the block heuristic</li>
+<li><code>::logsm_stats</code> prints the table and summary of the block heuristic</li>
 </ul>
 
 <pre><code>&gt; ::walk spa |::logsm_stats
