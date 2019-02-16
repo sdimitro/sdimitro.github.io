@@ -6,10 +6,20 @@
     <description>Recent content on Core Dump</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Wed, 05 Sep 2018 12:00:00 -0600</lastBuildDate>
+    <lastBuildDate>Sat, 16 Feb 2019 00:00:00 -0700</lastBuildDate>
     
 	<atom:link href="https://sdimitro.github.io/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>ZFS Checkpoint Internals</title>
+      <link>https://sdimitro.github.io/post/fbsd-ckpoint/</link>
+      <pubDate>Sat, 16 Feb 2019 00:00:00 -0700</pubDate>
+      
+      <guid>https://sdimitro.github.io/post/fbsd-ckpoint/</guid>
+      <description>I wrote the following article for the 2018 November/December Edition of the FreeBSD Journal. If you are a FreeBSD user/developer, I highly recommend the magazine for insights in the latest developments of FreeBSD.
+- Introduction - In March of this year (2018), Alexander Motin (mav@freebsd.org) ported the Pool Checkpoint feature of OpenZFS from Illumos to FreeBSD. A pool checkpoint can be thought of as a “poolwide snapshot” that captures the entire state of the pool at the time the checkpoint is created, allowing the user to revert the entire pool back to that state or discard it.</description>
+    </item>
     
     <item>
       <title>ZFS Log Spacemap - The Flushing Algorithm</title>
