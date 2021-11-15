@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<title>A Year Of SDB Work | Core Dump</title>
+	<link href="https://fonts.googleapis.com/css?family=Libre+Baskerville" rel="stylesheet"> 
+	<link href="https://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet"> 
+	<link rel="stylesheet" href="https://sdimitro.github.io/css/style.css">
+
+<div class="header">
+	<h3><a href="https://sdimitro.github.io">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>A Year Of SDB Work
+			<div class="normal">
+				<div class="when"> Posted on December 18, 2019.</div>
+			</div>
+		</h1>
+   <div class="content">
+     <p>Since the time I joined Delphix, it feels like I’ve always had at least one
+side-project that’s debugger-related. As we were based on illumos initially,
+most of these projects were around MDB. Some of those were polished and made it
+upstream (e.g. smart-write and support for incomplete unions in CTF) while
+others remained in the prototype stage in my home directory (support for Java,
+Lua scripting capabilities, etc..). Transitioning to Linux, a debugger that
+supported our existing processes and use cases was a big question mark in our
+plan. At this time, a bit over a year ago, I made replacing that question mark
+my side-project and with the support of the whole Systems Platforms team within
+Delphix in both resources and technical contributions, I think we finally have
+a solid plan.</p>
+
+<p>After surveying existing solutions (<code>gdb</code>, <code>kgdb/kdb</code>, <code>crash</code>, and
+<code>crash-python</code>), considering porting tools from other platforms (<code>mdb</code> and
+<code>acid</code>), and even creating our own debugger from scratch, we decided on
+creating sdb — a solution that combined all of the above. SDB is a debugger
+very similar to MDB, written from scratch in Python, and it leverages most of
+its capabilities from drgn, which in turn depends on common Linux libraries
+like <code>libelf</code> and <code>libdwfl</code>. The debugger itself is far from being done, yet I
+believe it’s at a stage now that anybody can give it a spin and even try it in
+production. In addition, while examining all of the above options, we got to
+create contacts and bring a few people together in a group to discuss the
+current issues and the future direction of kernel debugging tools in Linux. If
+you are interested, feel free to subscribe to our <a href="https://groups.google.com/access-error?continue=https://groups.google.com/g/linux-kernel-debugging-community">mailing
+list</a>,
+<a href="https://linux-kernel-debug.slack.com/">slack workspace</a>, or email me to
+receive an invite for one of our upcoming monthly meetings.</p>
+
+<p>In retrospect the highlights of the year for the project have been the
+following in chronological order:</p>
+
+<ul>
+<li><p>April 8th - All potential options with detailed plans and their requirements
+are put on the table.</p></li>
+
+<li><p>May 2nd -  Prakash Surya and I hacked together the initial prototype of sdb
+on top of crash-python.</p></li>
+
+<li><p>May 6th - The whole Systems Platforms team had a work-week hacking on sdb.
+The results were: SDB Pipes by Matt Ahrens and Paul Dagnelie, blkptr by Don
+Brady, zfs_dbgmsg by Paul, stacks by Sara Hartse and John Gallagher, arcstat by
+Prashanth Sreenivasa, and spa/vdev by George Wilson. In addition, Tom Caputi
+and Prakash enabled crash-python to work for live-systems (a solution that we
+still use today while support for function arguments insdb on top of drgn is
+still a WIP). Finally, Pavel Zakharov drew the first and only picture of the
+SDB mascot to this date.</p></li>
+</ul>
+
+<pre><code>sdb&gt; spa -v
+ADDR           NAME
+------------------------------------------------------------
+0xffffa0894e720000 data
+      ADDR               STATE   AUX  DESCRIPTION
+      ------------------------------------------------------------
+      0xffffa089486fc000 HEALTHY NONE  root
+      0xffffa08949ff4000 HEALTHY NONE    mirror
+      0xffffa08948af8000 HEALTHY NONE      /dev/sdb1
+      0xffffa08949ff8000 HEALTHY NONE      /dev/sdc1
+      0xffffa08949e58000 HEALTHY NONE    /dev/sdd1
+0xffffa08955c44000 rpool
+      ADDR               STATE   AUX  DESCRIPTION
+      ------------------------------------------------------------
+      0xffffa08952efc000 HEALTHY NONE  root
+      0xffffa08953300000 HEALTHY NONE    /dev/sda1
+sdb&gt; stacks
+THREAD   STATE                          COUNT
+---------------------------------------------
+560      INTERRUPTABLE                     14
+         context_switch+0x108
+         __schedule+0x2c0
+         schedule+0x2c
+         schedule_hrtimeout_range_clock+0x181
+         schedule_hrtimeout_range+0x13
+         poll_schedule_timeout+0x46
+         do_poll+0x2b6
+         do_sys_poll+0x3d6
+         __do_sys_poll+0x10
+         __se_sys_poll+0x2b
+         __x64_sys_poll+0x3b
+         do_syscall_64+0x5a
+         entry_SYSCALL_64
+...
+1        RUNNING                            1
+         context_switch+0x108
+         __schedule+0x2c0
+         schedule_idle+0x22
+         do_idle+0x16c
+         cpu_startup_entry+0x1d
+         rest_init+0xae
+         arch_call_rest_init+0xe
+         start_kernel+0x4f5
+         x86_64_start_reservations+0x24
+         x86_64_start_kernel+0x74
+         secondary_startup_64
+Total unique stacks: 114
+Matching unique stacks: 114
+</code></pre>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/sdb/sdb-original-logo.jpg" width="50%" height="50%"/>
+</p>
+
+<ul>
+<li><p>May 19th - Creation of <code>sdb</code> prototype on top of <code>drgn</code>.</p></li>
+
+<li><p>June 23rd - Prakash finished single-handedly porting the majority of the
+crash-python based code to the new prototype based on <code>drgn</code>.</p></li>
+
+<li><p>June 25th - With the help of Karyn Ritter we were able to open-source sdb
+under the Apache License 2.0.</p></li>
+
+<li><p>June 26th - The first Linux Kernel Debugging Community meeting took place
+online through Zoom where people from multiple companies, including the
+creators of <code>crash-python</code> (<a href="https://github.com/jeffmahoney">Jeff Mahoney</a>) and
+<code>drgn</code> (<a href="https://github.com/osandov">Omar Sandoval</a>), got to discuss the
+current issues and status of the existing debugging tools.</p></li>
+
+<li><p>September 9th - The <a href="https://www.linuxplumbersconf.org/">Linux Plumbers
+Conference</a> of 2019 took place in Lisbon.
+Omar presented DRGN in the tracing track while George Wilson and I introduced
+SDB in a BoF. Unfortunately BoFs are not recorded so there is no video of our
+presentation.</p></li>
+</ul>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/linux-plumbers-bof-2019.jpeg" width="80%" height="80%"/>
+</p>
+
+<ul>
+<li>November 4th - The <a href="http://open-zfs.org/wiki/OpenZFS_Developer_Summit">OpenZFS Dev Summit of
+2019</a> took place in San
+Francisco. I presented SDB there in the context of debugging ZFS on Linux. A
+few people decided to work on SDB during the hackathon with two of them ending
+up being in the finalists. Sara Hartse got 2nd place with her SDB walker for
+B-Trees in ZFS and Jordan Hendricks in the 3rd place with her metadata
+pretty-printer for kernel mutexes.</li>
+</ul>
+
+
+<div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden;">
+  <iframe src="//www.youtube.com/embed/uDDJnzSb-2w" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border:0;" allowfullscreen title="YouTube Video"></iframe>
+</div>
+
+
+<ul>
+<li>December 11th - SDB reaches an important stability and usability milestone
+(at least for me personally). We have a new test-suite that is not based on
+mocks which enables us to thoroughly tests all of our commands, <a href="https://codecov.io/gh/delphix/sdb">code coverage
+statistics</a>, and preliminary type-checks
+through mypy. All of these are fully automated and extensible through Github
+actions brought to you by Prakash. On the usability side, a ton of bugs were
+filled and fixed by Matt, Prakash, and <a href="https://github.com/ctuffli">Chuck
+Tuffli</a>. Highlights include: Coercing correctly at
+every point within a pipeline, auto-generating help messages from comments in
+the source, and maintaining the SDB session when dealing with buggy commands or
+Ctrl+c.</li>
+</ul>
+
+<p>There is still a ton of work to be done on SDB and I’m excited to see what we
+do next.</p>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io""A Year Of SDB Work";
+	   this.page.identifier = "A Year Of SDB Work";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script type="application/javascript">
+var doNotTrack = false;
+if (!doNotTrack) {
+	(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+	(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+	m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+	})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+	ga('create', 'UA-78963448-1', 'auto');
+	
+	ga('send', 'pageview');
+}
+</script>
+
+

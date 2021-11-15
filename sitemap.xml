@@ -8,6 +8,16 @@
   </url>
   
   <url>
+    <loc>https://sdimitro.github.io/post/libdmem-0/</loc>
+    <lastmod>2020-01-10T02:00:00-07:00</lastmod>
+  </url>
+  
+  <url>
+    <loc>https://sdimitro.github.io/post/a-year-of-sdb-work/</loc>
+    <lastmod>2019-12-18T02:00:00-07:00</lastmod>
+  </url>
+  
+  <url>
     <loc>https://sdimitro.github.io/post/debugging-delphix-sdb/</loc>
     <lastmod>2019-10-04T12:00:00-06:00</lastmod>
   </url>
