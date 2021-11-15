@@ -6,10 +6,33 @@
     <description>Recent content on Core Dump</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Sat, 16 Feb 2019 00:00:00 -0700</lastBuildDate>
+    <lastBuildDate>Thu, 04 Nov 2021 02:00:00 -0700</lastBuildDate>
     
 	<atom:link href="https://sdimitro.github.io/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>Bonwick&#39;s ZFS Blog Posts [Mirror]</title>
+      <link>https://sdimitro.github.io/post/bonwick-posts/</link>
+      <pubDate>Thu, 04 Nov 2021 02:00:00 -0700</pubDate>
+      
+      <guid>https://sdimitro.github.io/post/bonwick-posts/</guid>
+      <description>Oct 31, 2005 - ZFS: The Last Word in Filesystems Boo!
+Halloween has been a special day for ZFS since its inception.
+On 10/31/2001, we got the user-level prototype working.
+On 10/31/2002, we got the first in-kernel mount.
+And today, 10/31/2005, we integrated into Solaris. ZFS will hit the street in a couple of weeks via Solaris Express.
+We (the ZFS team) will have much more to say about ZFS in the coming weeks.</description>
+    </item>
+    
+    <item>
+      <title>OS Debugging At Delphix - From Illumos to Linux</title>
+      <link>https://sdimitro.github.io/post/debugging-delphix-sdb/</link>
+      <pubDate>Fri, 04 Oct 2019 12:00:00 -0600</pubDate>
+      
+      <guid>https://sdimitro.github.io/post/debugging-delphix-sdb/</guid>
+      <description>~ Introduction At Delphix we&amp;rsquo;ve switched the operating system that powers our appliance from Illumos to Linux. One of the main factors that contributed to this decision was that Linux is supported by nearly all hypervisors and cloud-providers. This is important for us because it means that our System Platforms team doesn&amp;rsquo;t need to spend time implementing and maintaining drivers for each hypervisor. At the same time though, the switch had its disadvantages.</description>
+    </item>
     
     <item>
       <title>ZFS Checkpoint Internals</title>

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<title>ZFS Pool Checkpoint - [FreeBSD Journal Excerpt] | Core Dump</title>
+	<link href="https://fonts.googleapis.com/css?family=Libre+Baskerville" rel="stylesheet"> 
+	<link href="https://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet"> 
+	<link rel="stylesheet" href="https://sdimitro.github.io/css/style.css">
+
+<div class="header">
+	<h3><a href="https://sdimitro.github.io">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>ZFS Pool Checkpoint - [FreeBSD Journal Excerpt]
+			<div class="normal">
+				<div class="when"> Posted on September 22, 2018.</div>
+			</div>
+		</h1>
+   <div class="content">
+     
+
+<h4 id="introduction">~ Introduction</h4>
+
+<p>On March 28th of this year (2018), Alexander Motin ported the Pool Checkpoint
+feature of OpenZFS from Illumos to FreeBSD. A pool checkpoint can be thought of
+as a &ldquo;pool-wide snapshot&rdquo;. It captures the entire state of the pool at the point
+that it&rsquo;s taken, allowing the user to revert back to it or discard it. The generic
+use case is administrative tasks, like OS upgrades, that involve actions that change
+or destroy ZFS state and metadata. Examples of such actions are, enabling pool
+features, setting properties of datasets, or destroying snapshots and filesystems.
+Before attempting such actions, administrators can checkpoint their pool, apply
+their changes, and then rewind back to the checkpoint if something goes wrong. Another
+way to think about it, is that in the same way a snapshot can help you get user data
+to a previous state, the checkpoint can help you get all the ZFS state of a pool in
+a previous state.</p>
+
+<p>There are already two tutorials online demonstrating how to use the feature, and a
+block comment in the source code giving a high-level overview of its implementation
+(see Appendix). This article lies somewhere in the middle, giving a high-level
+description of what happens under the hood during each administrative operation.</p>
+
+<h4 id="checkpointing-a-pool">~ Checkpointing a pool</h4>
+
+<p>In ZFS we keep track of changes over time with Transaction Groups (aka TXGs).
+Each TXG, ZFS accumulates changes in memory and, when certain conditions are
+met, it syncs those changes to disk, moving on to the next TXG. When syncing
+to disk each block records the TXG that it was created as its birth TXG. Birth
+TXGs are important for the pool checkpoint feature because they can help us
+differentiate between blocks created before and after a checkpoint (more on that
+later). Finally, a TXG&rsquo;s last step when syncing to disk, is writing the uberblock
+to the labels of all the vdevs. Each uberblock references the entire state of the
+pool for the TXG that it&rsquo;s created. Uberblocks are used during pool import as a
+starting point to all the pool&rsquo;s data and metadata.</p>
+
+<p>Whenever an administrator checkpoints a pool, ZFS dispatches a checkpoint synctask
+and returns control back to the administrator when the synctask completes. Synctasks
+are basically transactions that take place each time a TXG syncs. When synctasks
+run, ZFS guarantees that nobody else is changing metadata on disk. The checkpoint
+synctask specifically, copies the current uberblock of the pool and saves it as
+an entry in the MOS (stands for Meta-Object Set layer and can be thought of as a
+generic hash-table for ZFS metadata). At the end of the TXG that the synctask
+completes, the checkpoint becomes active.</p>
+
+<h4 id="the-lifetime-of-a-block-in-a-checkpointed-pool">~ The lifetime of a block in a checkpointed pool</h4>
+
+<p>While the process of allocating blocks stays the same when the checkpoint is active,
+freeing blocks is different. We can&rsquo;t free blocks that belong to the checkpoint,
+because we want to be able to rewind back to it. At the same time we can&rsquo;t stop
+freeing blocks, because that would fill up the pool. Thus, every time a block is
+freed we look at its birth TXG and we compare it to the TXG of the &ldquo;checkpointed&rdquo;
+uberblock that we saved in the MOS. If the birth TXG of the block being freed is
+before (or the same as) the TXG of the checkpointed uberblock, it means that the
+block is part of the checkpoint (e.g. it is reference by the checkpointed uberblock).
+These blocks are never actually freed. When they are no longer part of the pool
+(i.e. they have been freed in the current state) we append their segments to a list
+on-disk and ensure that they are still marked as allocated. Blocks whose birth TXGs
+are after the checkpoint&rsquo;s TXG, are not part of the actual checkpointed state and
+can be freed/recycled.</p>
+
+<h4 id="rewinding-to-the-checkpoint">~ Rewinding to the checkpoint</h4>
+
+<p>When the administrator decides that it&rsquo;s time to rewind back to the checkpoint, all
+they need to do is to export and then re-import the pool with the rewind option.
+When the rewind option is specified, the import process takes place as usual but
+with one additional step. ZFS first looks at the current uberblock and from that
+its finds the checkpointed uberblock in the MOS. The it uses the checkpointed
+uberblock as the current uberblock for the import process, effectively rewinding
+back to the checkpointed state. Once the import process is done, the rewind is
+complete.</p>
+
+<h4 id="discarding-the-checkpoint">~ Discarding the checkpoint</h4>
+
+<p>When the administrator decides to get rid of the checkpoint, they run the discard
+command which issues a discarding synctask within ZFS. The discarding synctask
+removes the checkpointed uberblock from the MOS. At that point, the pool is
+considered to not have a checkpoint anymore which allows blocks to be freed normally,
+regardless of their birth TXG. Finally the discarding synctask needs to free all
+the checkpointed blocks that are still marked as allocated and are not referenced
+by the current state of the pool, because they were referenced by the checkpoint
+that is now gone. That would be very expensive to do in a single synctask because, as
+mentioned earlier, we ran synctasks one at a time while blocking everything else
+in the system. For this reason the discarding synctask dispatches a separate thread
+before it terminates to finish the job on its behalf. The thread frees all these
+allocated blocks over the course of multiple TXGs. It does so  by prefetching these
+blocks in memory in chunks and issuing separate synctasks to free them each TXG.</p>
+
+<h4 id="acknowledgements">~ Acknowledgements</h4>
+
+<p>The development of this feature wouldn&rsquo;t be possible without the help of my
+colleagues from Delphix, especially Dan Kimmel for starting the initial prototype
+with me, and Matt Ahrens for guiding me every step of the way. I&rsquo;d also like
+to thank Alexander Motin for porting the feature to FreeBSD, and Marius Zaborski
+for promoting it.</p>
+
+<h4 id="appendix">~ Appendix</h4>
+
+<p>Tutorials:</p>
+
+<ul>
+<li>sdimitro.github.io/post/zpool-checkpoint/</li>
+<li>oshogbo.vexillium.org/blog/46/</li>
+</ul>
+
+<p>FreeBSD port commit:</p>
+
+<p><a href="https://github.com/freebsd/freebsd/commit/b1ec8f2d01fd5f696ce4f11f8e2755935e979cc6#diff-647f96e1ce041be651c78754b38a2509R27">https://github.com/freebsd/freebsd/commit/b1ec8f2d01fd5f696ce4f11f8e2755935e979cc6#diff-647f96e1ce041be651c78754b38a2509R27</a></p>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io""ZFS Pool Checkpoint - [FreeBSD Journal Excerpt]";
+	   this.page.identifier = "ZFS Pool Checkpoint - [FreeBSD Journal Excerpt]";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script>
+(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+ga('create', 'UA-78963448-1', 'auto');
+ga('send', 'pageview');
+</script>
+
+

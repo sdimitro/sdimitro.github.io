@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<title>Bonwick&#39;s ZFS Blog Posts [Mirror] | Core Dump</title>
+	<link href="https://fonts.googleapis.com/css?family=Libre+Baskerville" rel="stylesheet"> 
+	<link href="https://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet"> 
+	<link rel="stylesheet" href="https://sdimitro.github.io/css/style.css">
+
+<div class="header">
+	<h3><a href="https://sdimitro.github.io">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>Bonwick&#39;s ZFS Blog Posts [Mirror]
+			<div class="normal">
+				<div class="when"> Posted on November 4, 2021.</div>
+			</div>
+		</h1>
+   <div class="content">
+     
+
+<h1 id="oct-31-2005-zfs-the-last-word-in-filesystems">Oct 31, 2005 - ZFS: The Last Word in Filesystems</h1>
+
+<p>Boo!</p>
+
+<p>Halloween has been a special day for ZFS since its inception.</p>
+
+<p>On 10/31/2001, we got the user-level prototype working.</p>
+
+<p>On 10/31/2002, we got the first in-kernel mount.</p>
+
+<p>And today, 10/31/2005, we integrated into Solaris. ZFS will hit the street in a
+couple of weeks via Solaris Express.</p>
+
+<p>We (the ZFS team) will have much more to say about ZFS in the coming weeks. But
+tonight, I just want to tell you what it was like to drive this thing home.</p>
+
+<p>The ZFS team is distributed: we have people working in Menlo Park, California;
+Broomfield, Colorado; and several other places. This week, we flew everyone in
+to Menlo Park and took over a giant conference room.</p>
+
+<p>The first thing you notice is the heat. These rooms are made for 100 watt
+humans, not multi-gigahertz CPUs and associated paraphernalia. And, like any
+big company, Sun is all about saving money in the dumbest ways &ndash; like turning
+off the A/C at night, and outsourcing the people who could possibly turn it
+back on.</p>
+
+<p>At first, things went pretty well. We comandeered the Nob Hill conference room,
+which has a long table and lots of power and network taps. We brought in a
+bunch of machines and created &lsquo;Camp ZFS&rsquo;. Each new box amped up the heat level,
+to the point that it became difficult to think. So we grabbed a 36-inch fan
+from one of the labs to get the air flowing. That was a huge help, although it
+sounded like you were wearing a pair of lawn mowers as headphones.</p>
+
+<p>On Sunday, we plugged in one more laptop. That was it &ndash; we blew the circuit
+breaker! So here we are, less than 24 hours from our scheduled integration
+date, and all of our computers are without power &ndash; and the room containing the
+circuit breakers was locked. (Thanks, OSHA!)</p>
+
+<p>So we took a three-pronged approach: (1) went through the Approved Process to
+get power restored (ETA: April); (2) hunted down someone from campus security
+to get us key access to the electrical room (ETA: Sunday night); and (3) sent
+our manager to Home Depot to buy a bunch of 100-foot extension cords so we
+could, if necessary, run Nob Hill off of the adjacent lab&rsquo;s power grid (ETA: 30
+minutes).</p>
+
+<p>All three came through. We ran half of the load over extension cords to the
+lab, the other half on the Nob Hill circuit. It took a bit of experimentation
+to find a load balance that would stay up without tripping the breaker again.
+Apparently, we had angered it. (Even now, I&rsquo;m typing this blog entry courtesy
+of a shiny new yellow extension cord.)</p>
+
+<p>Meanwhile, the clock was ticking.</p>
+
+<p>At the end of a large project like this, it&rsquo;s never the technology that kills
+you &ndash; it&rsquo;s the process, the cleanup of home-grown customizations, the
+packaging, the late-breaking code review comments, the collapsing of SCCS
+deltas, stuff like that. With power back up, we slogged on until about 4AM.
+Everything looked good, so we went home to sleep. Actually, some people just
+crashed on the couches in my office, and Bill&rsquo;s office next door.</p>
+
+<p>By 10AM Monday we were back, making sure that all the final tests had run
+successfully, and working through the last bits of paperwork with the Solaris
+release team. After five years of effort, it was time to type &lsquo;putback&rsquo;.</p>
+
+<p>Denied! The permissions on a directory were wrong.</p>
+
+<p>Fix them up, try again.</p>
+
+<p>Denied! One more TeamWare directory with wrong permissions. Fine, fix that too.</p>
+
+<p>Last try&hellip; and there it goes! 584 files, 92,000 lines of change, 56 patents, 5
+years&hellip; and there it is. Just like that.</p>
+
+<p>Fortunately we were prepared for either success or failure. We had brought in a
+massive array of vodka, tequila, wine&hellip; you name it, we had it. And not in
+small quantities.</p>
+
+<p>As I said at the beginning, we&rsquo;ll have lots more to say in the coming days. But
+right now, it&rsquo;s time to sleep!</p>
+
+<p>Jeff</p>
+
+<hr />
+
+<h1 id="dec-12-2005-seek-hole-and-seek-data-for-sparse-files">Dec 12, 2005 - SEEK_HOLE and SEEK_DATA for sparse files</h1>
+
+<p>A sparse file is a file that contains much less data than its size would
+suggest. If you create a new file and then do a 1-byte write to the billionth
+byte, for example, you&rsquo;ve just created a 1GB sparse file.  By convention, reads
+from unwritten parts of a file return zeroes.</p>
+
+<p>File-based backup and archiving programs like <code>tar</code>, <code>cpio</code>, and <code>rsync</code> can
+detect runs of zeroes and ignore them, so that the archives they produce aren&rsquo;t
+filled with zeroes. Still, this is terribly inefficient.  If you&rsquo;re a backup
+program, what you really want is a list of the non-zero segments in the file.
+But historically there&rsquo;s been no way to get this information without looking at
+filesystem-specific metadata.</p>
+
+<h2 id="desperately-seeking-segments">Desperately seeking segments</h2>
+
+<p>As part of the ZFS project, we introduced two general extensions to <code>lseek(2)</code>:
+<code>SEEK_HOLE</code> and <code>SEEK_DATA</code>. These allow you to quickly discover the non-zero
+regions of sparse files. Quoting from the new man page:</p>
+
+<pre><code>* If whence is SEEK_HOLE, the offset of the start of  the next  hole greater
+  than or equal to the supplied offset is returned. The definition of a hole is
+provided  near the end of the DESCRIPTION.
+
+*  If whence is SEEK_DATA, the file pointer is set to  the start  of the next
+   non-hole file region greater than or equal to the supplied offset.  [...]
+
+   A &quot;hole&quot; is defined as a contiguous  range  of  bytes  in  a file,  all
+   having the value of zero, but not all zeros in a file are guaranteed to be
+   represented as holes returned with SEEK_HOLE. Filesystems are allowed to expose
+   ranges of zeros with SEEK_HOLE, but not required to.  Applications  can  use
+   SEEK_HOLE  to  optimise  their behavior for ranges of zeros, but must not
+   depend on it to find all such ranges in a file.  The  existence  of  a  hole
+   at the end of every data region allows for easy programming and implies that a
+   virtual  hole exists  at  the  end  of  the  file. Applications should use
+   fpathconf(_PC_MIN_HOLE_SIZE) or  pathconf(_PC_MIN_HOLE_SIZE) to  determine if a
+   filesystem supports SEEK_HOLE. See fpath- conf(2).  For filesystems that do not
+   supply information about  holes, the file will be represented as one entire
+   data region.
+</code></pre>
+
+<p>Any filesystem can support <code>SEEK_HOLE</code>/<code>SEEK_DATA</code>. Even a filesystem like UFS,
+which has no special support for sparseness, can walk its block pointers much
+faster than it can copy out a bunch of zeroes.  Even if the search algorithm is
+linear-time, at least the constant is thousands of times smaller.</p>
+
+<h2 id="sparse-file-navigation-in-zfs">Sparse file navigation in ZFS</h2>
+
+<p>A file in ZFS is a tree of blocks. To maximize the performance of <code>SEEK_HOLE</code>
+and <code>SEEK_DATA</code>, ZFS maintains in each block pointer a fill count indicating
+the number of data blocks beneath it in the tree (see below). Fill counts
+reveal where holes and data reside, so that ZFS can find both holes and data in
+guaranteed logarithmic time.</p>
+
+<pre><code>  L4                           6
+              -----------------------------------
+  L3          5                0                1
+         -----------      -----------      -----------
+  L2     3    0    2                       0    0    1
+        ---  ---  ---                     ---  ---  ---
+  L1    111       101                               001
+</code></pre>
+
+<p>An indirect block tree for a sparse file, showing the fill count in each block
+pointer. In this example there are three block pointers per indirect block. The
+lowest-level (L1) block pointers describe either one block of data or one
+block-sized hole, indicated by a fill count of 1 or 0, respectively. At L2 and
+above, each block pointer&rsquo;s fill count is the sum of the fill counts of its
+children.  At any level, a non-zero fill count indicates that there&rsquo;s data
+below.  A fill count less than the maximum (3L-1 in this example) indicates
+that there are holes below. From any offset in the file, ZFS can find the next
+hole or next data in logarithmic time by following the fill counts in the
+indirect block tree.</p>
+
+<h2 id="portability">Portability</h2>
+
+<p>At this writing, <code>SEEK_HOLE</code> and <code>SEEK_DATA</code> are Solaris-specific.  I encourage
+(implore? beg?) other operating systems to adopt these <code>lseek(2)</code> extensions
+verbatim (100% tax-free) so that sparse file navigation becomes a ubiquitous
+feature that every backup and archiving program can rely on.  It&rsquo;s long
+overdue.</p>
+
+<hr />
+
+<h1 id="may-2-2006-smokin-mirrors">May 2, 2006 - Smokin&rsquo; Mirrors</h1>
+
+<p>Resilvering &ndash; also known as resyncing, rebuilding, or reconstructing &ndash; is the
+process of repairing a damaged device using the contents of healthy devices.
+This is what every volume manager or RAID array must do when one of its disks
+dies, gets replaced, or suffers a transient outage.</p>
+
+<p>For a mirror, resilvering can be as simple as a whole-disk copy.  For RAID-5
+it&rsquo;s only slightly more complicated: instead of copying one disk to another,
+all of the other disks in the RAID-5 stripe must be XORed together. But the
+basic idea is the same.</p>
+
+<p>In a traditional storage system, resilvering happens either in the volume
+manager or in RAID hardware. Either way, it happens well below the filesystem.</p>
+
+<p>But this is ZFS, so of course we just had to be different.</p>
+
+<p>In a previous post I mentioned that RAID-Z resilvering requires a different
+approach, because it needs the filesystem metadata to determine the RAID-Z
+geometry. In effect, ZFS does a <code>'cp -r'</code> of the storage pool&rsquo;s block tree from
+one disk to another.  It sounds less efficient than a straight whole-disk copy,
+and traversing a live pool safely is definitely tricky (more on that in a
+future post).  But it turns out that there are so many advantages to
+metadata-driven resilvering that we&rsquo;ve chosen to use it even for simple
+mirrors.</p>
+
+<p>The most compelling reason is data integrity. With a simple disk copy,
+there&rsquo;s no way to know whether the source disk is returning good data.</p>
+
+<p>End-to-end data integrity requires that each data block be verified against an
+independent checksum &ndash; it&rsquo;s not enough to know that each block is merely
+consistent with itself, because that doesn&rsquo;t catch common hardware and firmware
+bugs like misdirected reads and phantom writes.</p>
+
+<p>By traversing the metadata, ZFS can use its end-to-end checksums to detect and
+correct silent data corruption, just like it does during normal reads.  If a
+disk returns bad data transiently, ZFS will detect it and retry the read.  If
+it&rsquo;s a 3-way mirror and one of the two presumed-good disks is damaged, ZFS will
+use the checksum to determine which one is correct, copy the data to the new
+disk, and repair the damaged disk.</p>
+
+<p>A simple whole-disk copy would bypass all of this data protection.  For this
+reason alone, metadata-driven resilvering would be desirable even it it came at
+a significant cost in performance.</p>
+
+<p>Fortunately, in most cases, it doesn&rsquo;t. In fact, there are several
+advantages to metadata-driven resilvering:</p>
+
+<ul>
+<li><p><em>Live blocks only</em>. ZFS doesn&rsquo;t waste time and I/O bandwidth copying free
+disk blocks because they&rsquo;re not part of the storage pool&rsquo;s block tree.  If
+your pool is only 10-20% full, that&rsquo;s a big win.</p></li>
+
+<li><p><em>Transactional pruning</em>. If a disk suffers a transient outage, it&rsquo;s not
+necessary to resilver the entire disk &ndash; only the parts that have changed.
+I&rsquo;ll describe this in more detail in a future post, but in short: ZFS uses the
+birth time of each block to determine whether there&rsquo;s anything lower in the
+tree that needs resilvering.  This allows it to skip over huge branches of the
+tree and quickly discover the data that has actually changed since the outage
+began.
+What this means in practice is that if a disk has a five-second outage, it
+will only take about five seconds to resilver it.  And you don&rsquo;t pay extra for
+it &ndash; in either dollars or performance &ndash; like you do with Veritas change
+objects. Transactional pruning is an intrinsic architectural capability of ZFS.</p></li>
+
+<li><p><em>Top-down resilvering</em>. A storage pool is a tree of blocks.  The higher up
+the tree you go, the more disastrous it is to lose a block there, because you
+lose access to everything beneath it.</p></li>
+</ul>
+
+<p>Going through the metadata allows ZFS to do top-down resilvering.  That is, the
+very first thing ZFS resilvers is the uberblock and the disk labels. Then it
+resilvers the pool-wide metadata; then each filesystem&rsquo;s metadata; and so on
+down the tree. Throughout the process ZFS obeys this rule: no block is
+resilvered until all of its ancestors have been resilvered.</p>
+
+<p>It&rsquo;s hard to overstate how important this is. With a whole-disk copy, even when
+it&rsquo;s 99% done there&rsquo;s a good chance that one of the top 100 blocks in the tree
+hasn&rsquo;t been copied yet. This means that from an MTTR perspective, you haven&rsquo;t
+actually made any progress: a second disk failure at this point would still be
+catastrophic.</p>
+
+<p>With top-down resilvering, every single block copied increases the amount of
+discoverable data. If you had a second disk failure, everything that had been
+resilvered up to that point would be available.</p>
+
+<p>Priority-based resilvering. ZFS doesn&rsquo;t do this one yet, but it&rsquo;s in the
+pipeline. ZFS resilvering follows the logical structure of the data, so it
+would be pretty easy to tag individual filesystems or files with a specific
+resilver priority. For example, on a file server you might want to resilver
+calendars first (they&rsquo;re important yet very small), then <code>/var/mail</code>, then home
+directories, and so on.</p>
+
+<p>What I hope to convey with each of these posts is not just the mechanics of how
+a particular feature is implemented, but to illustrate how all the parts of ZFS
+form an integrated whole. It&rsquo;s not immediately obvious, for example, that
+transactional semantics would have anything to do with resilvering &ndash; yet
+transactional pruning makes recovery from transient outages literally orders of
+magnitude faster. More on how that works in the next post.</p>
+
+<hr />
+
+<h1 id="nov-4-2006-zfs-block-allocation">Nov 4, 2006 ZFS Block Allocation</h1>
+
+<p>Block allocation is central to any filesystem.  It affects not only
+performance, but also the administrative model (e.g. stripe configuration) and
+even some core capabilities like transactional semantics, compression, and
+block sharing between snapshots.  So it&rsquo;s important to get it right.</p>
+
+<p>There are three components to the block allocation policy in ZFS:</p>
+
+<ul>
+<li>Device selection (dynamic striping)</li>
+<li>Metaslab selection</li>
+<li>Block selection</li>
+</ul>
+
+<p>By design, these three policies are independent and pluggable.  They can be
+changed at will without altering the on-disk format, which gives us lots of
+flexibility in the years ahead.</p>
+
+<p>So&hellip; let&rsquo;s go allocate a block!</p>
+
+<h2 id="1-device-selection-aka-dynamic-striping">1. Device selection (aka dynamic striping).</h2>
+
+<p>Our first task is device selection.  The goal is to spread the load across all
+devices in the pool so that we get maximum bandwidth without needing any notion
+of stripe groups.  You add more disks, you get more bandwidth.  We call this
+dynamic striping &ndash; the point being that it&rsquo;s done on the fly by the
+filesystem, rather than at configuration time by the administrator.</p>
+
+<p>There are many ways to select a device.  Any policy would work, including just
+picking one at random.  But there are several practical considerations:</p>
+
+<p>If a device was recently added to the pool, it&rsquo;ll be relatively empty.  To
+address such imbalances, we bias the allocation slightly in favor of
+underutilized devices.  This keeps space usage uniform across all devices.</p>
+
+<p>All else being equal, round-robin is a fine policy, but it&rsquo;s critical to get
+the granularity right.  If the granularity is too coarse (e.g. 1GB), we&rsquo;ll only
+get one device worth of bandwidth when doing sequential reads and writes.  If
+the granularity is too fine (e.g. one block), we&rsquo;ll waste any read buffering
+the device can do for us.  In practice, we&rsquo;ve found that switching from one
+device to the next every 512K works well for the current generation of disk
+drives.</p>
+
+<p>That said, for intent log blocks, it&rsquo;s better to round-robin between devices
+each time we write a log block.  That&rsquo;s because they&rsquo;re very short-lived, so we
+don&rsquo;t expect to ever need to read them; therefore it&rsquo;s better to optimize for
+maximum IOPs when writing log blocks.  Neil Perrin integrated support for this
+earlier today.</p>
+
+<p>More generally, we&rsquo;ll probably want different striping policies for different
+types of data: large/sequential, small/random, transient (like the intent log),
+and dnodes (clumping for spatial density might be good).  This is fertile
+ground for investigation.</p>
+
+<p>If one of the devices is slow or degraded for some reason, it should be
+avoided.  This is work in progress.</p>
+
+<h2 id="2-metaslab-selection">2. Metaslab selection.</h2>
+
+<p>We divide each device into a few hundred regions, called metaslabs, because the
+overall scheme was inspired by the slab allocator. Having selected a device,
+which metaslab should we use?  Intuitively it seems that we&rsquo;d always want the
+one with the most free space, but there are other factors to consider:</p>
+
+<p>Modern disks have uniform bit density and constant angular velocity.
+Therefore, the outer recording zones are faster (higher bandwidth) than the
+inner zones by the ratio of outer to inner track diameter, which is typically
+around 2:1.  We account for this by assigning a higher weight to the free space
+in lower-LBA metaslabs.  In effect, this means that we&rsquo;ll select the metaslab
+with the most free bandwidth rather than simply the one with the most free
+space.</p>
+
+<p>When a pool is relatively empty, we want to keep allocations in the outer
+(faster) regions of the disk; this improves both bandwidth and latency (by
+minimizing seek distances).  Therefore, we assign a higher weight to metaslabs
+that have been used before.</p>
+
+<p>All of these considerations can be seen in the function metaslab_weight().
+Having defined a weighting scheme, the selection algorithm is simple:  always
+select the metaslab with the highest weight.</p>
+
+<h2 id="3-block-selection">3. Block selection.</h2>
+
+<p>Having selected a metaslab, we must choose a block within that metaslab.  The
+current allocation policy is a simple variation on first-fit; it  seems likely
+that we can do better.  In the future I expect that we&rsquo;ll  have not only a
+better algorithm, but a whole collection of algorithms, each optimized for a
+specific workload.  Anticipating this, the block allocation code is fully
+vectorized; see space_map_ops_t for details.</p>
+
+<p>The mechanism (as opposed to policy) for keeping track of free space in a
+metaslab is a new data structure called a space map, which I&rsquo;ll describe in the
+next post.</p>
+
+<hr />
+
+<h1 id="sep-14-2007-space-maps">Sep 14, 2007 - Space Maps</h1>
+
+<p>Every filesystem must keep track of two basic things: where your data is, and
+where the free space is.</p>
+
+<p>In principle, keeping track of free space is not strictly necessary: every
+block is either allocated or free, so the free space can be computed by
+assuming everything is free and then subtracting out everything that&rsquo;s
+allocated; and the allocated space can be found by traversing the entire
+filesystem from the root.  Any block that cannot be found by traversal from the
+root is, by definition, free.</p>
+
+<p>In practice, finding free space this way would be insufferable because it would
+take far too long for any filesystem of non-trivial size.  To make the
+allocation and freeing of blocks fast, the filesystem needs an efficient way to
+keep track of free space.  In this post we&rsquo;ll examine the most common methods,
+why they don&rsquo;t scale well, and the new approach we devised for ZFS.</p>
+
+<h2 id="bitmaps">Bitmaps</h2>
+
+<p>The most common way to represent free space is by using a bitmap.  A bitmap is
+simply an array of bits, with the Nth bit indicating whether the Nth block is
+allocated or free.  The overhead for a bitmap is quite low: 1 bit per block.
+For a 4K blocksize, that&rsquo;s 1/(4096*8) = 0.003%.  (The 8 comes from 8 bits per
+byte.)</p>
+
+<p>For a 1GB filesystem, the bitmap is 32KB &ndash; something that easily fits in
+memory, and can be scanned quickly to find free space.  For a 1TB filesystem,
+the bitmap is 32MB &ndash; still stuffable in memory, but no longer trivial in
+either size or scan time.  For a 1PB filesystem, the bitmap is 32GB, and that
+simply won&rsquo;t fit in memory on most machines.  This means that scanning the
+bitmap requires reading it from disk, which is slower still.</p>
+
+<p><em><em>Clearly, this doesn&rsquo;t scale</em></em>.</p>
+
+<p>One seemingly obvious remedy is to break the bitmap into small chunks, and keep
+track of the number of bits set in each chunk.  For example, for a 1PB
+filesystem using 4K blocks, the free space can be divided into a million
+bitmaps, each 32KB in size.  The summary information (the million integers
+indicating how much space is in each bitmap) fits in memory, so it&rsquo;s easy to
+find a bitmap with free space, and it&rsquo;s quick to scan that bitmap.</p>
+
+<p>But there&rsquo;s still a fundamental problem: the bitmap(s) must be updated not only
+when a new block is allocated, but also when an old block is freed.  The
+filesystem controls the locality of allocations (it decides which blocks to put
+new data into), but it has no control over the locality of frees.  Something as
+simple as &lsquo;rm -rf&rsquo; can cause blocks all over the platter to be freed.  With our
+1PB filesystem example, in the worst case, removing 4GB of data (a million 4K
+blocks) could require each of the million bitmaps to be read, modified, and
+written out again.  That&rsquo;s two million disk I/Os to free a measly 4GB &ndash; and
+that&rsquo;s just not reasonable, even as worst-case behavior.</p>
+
+<p>More than any other single factor, this is why bitmaps don&rsquo;t scale: because
+frees are often random, and bitmaps that don&rsquo;t fit in memory perform
+pathologically when they are accessed randomly.</p>
+
+<h2 id="b-trees">B-trees</h2>
+
+<p>Another common way to represent free space is with a B-tree of extents.  An
+extent is a contiguous region of free space described by two integers: offset
+and length.  The B-tree sorts the extents by offset so that contiguous space
+allocation is efficient.  Unfortunately, B-trees of extents suffer the same
+pathology as bitmaps when confronted with random frees.</p>
+
+<h2 id="what-to-do">What to do?</h2>
+
+<p><em><em>Deferred frees</em></em></p>
+
+<p>One way to mitigate the pathology of random frees is to defer the update of the
+bitmaps or B-trees, and instead keep a list of recently freed blocks.  When
+this deferred free list reaches a certain size, it can be sorted, in memory,
+and then freed to the underlying bitmaps or B-trees with somewhat better
+locality.  Not ideal, but it helps.</p>
+
+<p><em><em>But what if we went further?</em></em></p>
+
+<h2 id="space-maps-log-structured-free-lists">Space maps:  log-structured free lists</h2>
+
+<p>Recall that log-structured filesystems long ago posed this question: what if,
+instead of periodically folding a transaction log back into the filesystem, we
+made the transaction log be the filesystem?</p>
+
+<p>Well, the same question could be asked of our deferred free list: what if,
+instead of folding it into a bitmap or B-tree, we made the deferred free list
+be the free space representation?</p>
+
+<p>That is precisely what ZFS does.  ZFS divides the space on each virtual device
+into a few hundred regions called metaslabs.  Each metaslab has an associated
+space map, which describes that metaslab&rsquo;s free space.  The space map is simply
+a log of allocations and frees, in time order.  Space maps make random frees
+just as efficient as sequential frees, because regardless of which extent is
+being freed, it&rsquo;s represented on disk by appending the extent (a couple of
+integers) to the space map object &ndash; and appends have perfect locality.
+Allocations, similarly, are represented on disk as extents appended to the
+space map object (with, of course, a bit set indicating that it&rsquo;s an
+allocation, not a free).</p>
+
+<p>When ZFS decides to allocate blocks from a particular metaslab, it first reads
+that metaslab&rsquo;s space map from disk and replays the allocations and frees into
+an in-memory AVL tree of free space, sorted by offset.  This yields a compact
+in-memory representation of free space that supports efficient allocation of
+contiguous space.  ZFS also takes this opportunity to condense the space map:
+if there are many allocation-free pairs that cancel out, ZFS replaces the
+on-disk space map with the smaller in-memory version.</p>
+
+<p>Space maps have several nice properties:</p>
+
+<ul>
+<li><p>They don&rsquo;t require initialization: a space map with no entries indicates that
+there have been no allocations and no frees, so all space is free.</p></li>
+
+<li><p>They scale: because space maps are append-only, only the last block of the
+space map object needs to be in memory to ensure excellent performance, no
+matter how much space is being managed.</p></li>
+
+<li><p>They have no pathologies: space maps are efficient to update regardless of
+the pattern of allocations and frees.</p></li>
+
+<li><p>They are equally efficient at finding free space whether the pool is empty or
+full (unlike bitmaps, which take longer to scan as they fill up).</p></li>
+</ul>
+
+<p>Finally, note that when a space map is completely full, it is represented by a
+single extent.  Space maps therefore have the appealing property that as your
+storage pool approaches 100% full, the space maps start to evaporate, thus
+making every last drop of disk space available to hold useful information.</p>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io""Bonwick's ZFS Blog Posts [Mirror]";
+	   this.page.identifier = "Bonwick's ZFS Blog Posts [Mirror]";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script type="application/javascript">
+var doNotTrack = false;
+if (!doNotTrack) {
+	(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+	(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+	m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+	})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+	ga('create', 'UA-78963448-1', 'auto');
+	
+	ga('send', 'pageview');
+}
+</script>
+
+

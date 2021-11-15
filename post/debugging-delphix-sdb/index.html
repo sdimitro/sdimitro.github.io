@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<title>OS Debugging At Delphix - From Illumos to Linux | Core Dump</title>
+	<link href="https://fonts.googleapis.com/css?family=Libre+Baskerville" rel="stylesheet"> 
+	<link href="https://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet"> 
+	<link rel="stylesheet" href="https://sdimitro.github.io/css/style.css">
+
+<div class="header">
+	<h3><a href="https://sdimitro.github.io">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>OS Debugging At Delphix - From Illumos to Linux
+			<div class="normal">
+				<div class="when"> Posted on October 4, 2019.</div>
+			</div>
+		</h1>
+   <div class="content">
+     
+
+<h4 id="introduction">~ Introduction</h4>
+
+<p>At Delphix we&rsquo;ve switched the operating system that powers our appliance from
+Illumos to Linux. One of the main factors that contributed to this decision
+was that Linux is supported by nearly all hypervisors and cloud-providers. This
+is important for us because it means that our System Platforms team doesn&rsquo;t
+need to spend time implementing and maintaining drivers for each hypervisor.
+At the same time though, the switch had its disadvantages. A big one was that
+Linux lacked a kernel debugger that supports the workflows of our engineering and
+support organizations. This post describes these workflows and how they were
+supported by MDB (<a href="https://illumos.org/books/mdb/preface.html#preface">Modular Debugger</a>)
+in illumos. Then it surveys the current state of similar tooling in Linux and
+introduces SDB, which stands for the <a href="https://github.com/delphix/sdb">Slick Debugger</a>
+and is a project that we&rsquo;ve been working on for the past few months.</p>
+
+<h4 id="debugging-systems-in-production-the-delphix-use-case-and-mdb">~ Debugging Systems in Production - The Delphix Use Case and MDB</h4>
+
+<p>The Delphix Appliance is a VM that our customers run on-prem or in the public
+cloud. When something goes wrong on the VM, customers contact support and give
+our support engineers temporary access to the VM to diagnose and troubleshoot
+the issue. There are times though where things have gone to the point that
+support needs to reach out to engineering. Examples of such scenarios are kernel
+panics, slow or hanged systems, and misbehaving device drivers. In such cases
+if the system is still running, the engineer handling the escalation connects to
+it and starts to poke around generally using MDB and DTrace. If the machine
+experienced something like a kernel panic and had to reboot, a crash dump is
+generated and collected by support for in-house analysis by engineering.</p>
+
+<p>The actual details of handling such escalations can vary widely depending on
+the situation and sometimes the situation can be extreme. For example, the
+machine may enter a panic loop, in which case the kernel crashes early in boot,
+leaving no time for the user to do anything (including getting their hands on
+the crash dump of the previous panic).  In such cases Illumos can be configured
+to drop into KMDB exactly when the panic occurs, allowing our engineers to
+poke around the system through the console (KMDB is a version of MDB
+specifically designed for kernel execution control). Another way that we&rsquo;ve
+dealt with this issue in the past for customers running on VMware ESX is to
+get a VMware snapshot and analyze that with MDB. For customers running on the
+cloud where we can&rsquo;t get console access, our VMs are configured with an
+alternative boot environment that is activated once the bootloader detects that
+we&rsquo;ve rebooted multiple times within a small period of time. That boot environment
+is a minimal system that our engineers can SSH into, mount the directory where
+the crash dumps reside, and analyze them. It is also used afterwards to place
+any patched binaries once we&rsquo;ve root-caused and fixed the issue.</p>
+
+<p>Reboots in general are used as a last resort. If the nature of the issue
+results in a stuck system that users can still SSH into (e.g. a deadlock in
+NFS) it is preferable to first analyze the live-system. If the engineers
+cannot root-cause the issue right away and the customer&rsquo;s productivity is
+severely affected, only then we generate a crash dump and potentially reboot.
+The reason we prefer debugging the live-system first is that it is the
+only point in time when the engineer can have access to the whole state of
+the system (i.e. both in memory and on disk state). Also for issues like a slow
+performing VM, the engineer may be able to fix the issue by just changing a
+kernel tunable/global variable on the live system though MDB. This completely
+avoids the reboot and does not interrupt the use of the VM by the customer.</p>
+
+<p>All the above use-cases show that MDB is a versatile tool that can be used
+in multiple ways to debug issues in the kernel. This is one of the reasons
+that has made it indespensable to our processes when debugging issues in
+production. The other reason is that MDB is overall a well-designed debugger.</p>
+
+<h4 id="what-makes-a-good-kernel-debugger">~ What Makes a Good Kernel Debugger?</h4>
+
+<blockquote>
+<p>&ldquo;The most effective debugging tool is still careful thought, coupled with
+judiciously placed print statements.&rdquo;
+<div style="text-align: right"> Brian Kernighan (Unix For Beginners) </div></p>
+</blockquote>
+
+<p>Debugging is an attitude. There is always a logical explanation for why a
+system is misbehaving and it generally doesn&rsquo;t take more than 3 or 4 good
+questions to root-cause the issue. When debugging a kernel panic for example,
+the first question that we ask is &ldquo;what happened and where?&rdquo; which can
+generally be answered by looking at the stack trace of the panicked thread.
+Then we pause, reflect, and use backwards reasoning and ask more questions
+to figure out why. A good debugger helps you get the answers to your questions
+quickly and effectively.</p>
+
+<p><strong><em>A good debugger gives you access to all the state in the system.</em></strong> It can
+print the stack traces of all the threads in the system together with their
+function arguments in each stack frame. It allows you to easily walk complex data
+structures in memory or all the locations in any memory region. I personally
+agree overall with Brian Kernighan&rsquo;s quote in the beginning of this section but
+if we were to take the point about print statements literally, I don&rsquo;t think
+it is applicable to debugging kernels in production (especially in an appliance
+setting). It would be a huge waste of time and resources (not to mention very
+error-prone) to add print statements, recompile, and deploy a whole kernel
+during an escalation. One could make the point of placing smart logging during
+development and access that in production, but experience has shown us that it
+is hard to foresee what you&rsquo;ll need in the future until it&rsquo;s too late. A
+debugger that has access to all the state in a running system or a crash dump
+allows you to print anything you want on-demand.</p>
+
+<p><strong><em>A good debugger presents data to you in a precise and readable format.</em></strong>
+To illustrate this point, I use an example from the ZFS code base. In ZFS,
+on disk block pointers are described by the following structure:</p>
+
+<pre><code>typedef struct blkptr {
+    dva_t     blk_dva[SPA_DVAS_PER_BP]; /* Data Virtual Addresses */
+    uint64_t  blk_prop;           /* size, compression, type, etc */
+    uint64_t  blk_pad[2];           /* Extra space for the future */
+    uint64_t  blk_phys_birth;     /* txg when block was allocated */
+    uint64_t  blk_birth;	    /* transaction group at birth */
+    uint64_t  blk_fill;	                            /* fill count */
+    zio_cksum_t	blk_cksum;                    /* 256-bit checksum */
+} blkptr_t;
+</code></pre>
+
+<p>Most debuggers can pretty-print structures in memory like this:</p>
+
+<pre><code>(blkptr_t){
+    .blk_dva = (dva_t [3]){
+        {
+            .dva_word = (uint64_t [2]){ 4294967297, 8388625, },
+        },
+        {
+            .dva_word = (uint64_t [2]){ 8589934593, 4194305, },
+        },
+        {
+            .dva_word = (uint64_t [2]){ 1, 4194305, },
+        },
+    },
+    .blk_prop = (uint64_t)9226476022604496903,
+    .blk_pad = (uint64_t [2]){},
+    .blk_phys_birth = (uint64_t)0,
+    .blk_birth = (uint64_t)1101,
+    .blk_fill = (uint64_t)120,
+    .blk_cksum = (zio_cksum_t){
+    .    zc_word = (uint64_t [4]){ 48532393572, 4958534444355, 258227437375945, 9143840630644146, },
+    },
+}
+</code></pre>
+
+<p>This is nice but the debugger could do better. Each <code>dva_word</code> of the <code>blk_dva</code>
+member is comprised by 2 <code>uint64_t</code>s which actually describes the device that
+the block belongs to, together with the block&rsquo;s offset within that device, and
+the block&rsquo;s size. In addition, the <code>blk_prop</code> member is really a set of flags
+described by the bits set in it. With that in mind a good debugger can be
+taught to optionally print these kind of structures succinctly like this:</p>
+
+<pre><code>DVA[0]=&lt;1:100002200:200&gt;   // &lt;--- this is blk_dva[0].dva_word
+DVA[1]=&lt;2:80000200:200&gt;
+DVA[2]=&lt;0:80000200:200&gt;
+[L0 OBJSET] FLETCHER_4 LZ4 LE gang unique triple // &lt;--- this is blk_prop
+size=1000L/200P birth=1101L/1101P fill=120
+cksum=b4cc18e64:4827faf2543:eadb42ad11c9:207c464cac1db2
+</code></pre>
+
+<p>Pretty-printing structures is not the only thing to get from this point. The
+concept of pretty-printing data is really helpful in a variety of other
+contexts. For example, in the MDB output below, a nice report is produced were
+the stack traces of all the threads in the system are aggregated and printed
+with a thread count:</p>
+
+<pre><code>&gt; ::stacks
+THREAD           STATE    SOBJ                COUNT
+---------------------------------------------------
+ffffff000d611c40 SLEEP    CV                    577
+                 swtch+0x141
+                 cv_wait+0x70
+                 taskq_thread_wait+0xbe
+                 taskq_thread+0x37c
+                 thread_start+8
+
+ffffff0382dbb440 SLEEP    CV                     36
+                 swtch+0x141
+                 cv_timedwait_sig_hires+0x39d
+                 cv_timedwait_sig_hrtime+0x2a
+                 nanosleep+0x18a
+                 _sys_sysenter_post_swapgs+0x149
+
+ffffff0382dbbb80 SLEEP    CV                     33
+                 swtch+0x141
+                 cv_wait_sig_swap_core+0x1b9
+                 cv_wait_sig_swap+0x17
+                 cv_waituntil_sig+0xbd
+                 lwp_park+0x15e
+                 syslwp_park+0x63
+                 _sys_sysenter_post_swapgs+0x149
+
+          ... &lt;cropped&gt; ...
+
+ffffff000d755c40 SLEEP    CV                      1
+                 swtch+0x141
+                 cv_timedwait_hires+0xec
+                 cv_timedwait+0x5c
+                 l2arc_feed_thread+0xc6
+                 thread_start+8
+
+ffffff000d74fc40 SLEEP    CV                      1
+                 swtch+0x141
+                 cv_timedwait_hires+0xec
+                 dbuf_evict_thread+0x10c
+                 thread_start+8
+</code></pre>
+
+<p>Introspecting data from the system&rsquo;s state, combining them, and printing them
+in a form that emphasizes in answering the user&rsquo;s questions is an essential
+ingredient for a good debugger. In order for the debugger to be able to print
+data in various representations though, someone needs to teach it how to gather
+and interpret it for each case, which brings us to the next point.</p>
+
+<p><strong><em>A good debugger is easily extensible.</em></strong> A developer that&rsquo;s working on a new
+feature should be able to extend the debugger with new commands to make it
+aware of the new feature, without having to recompile the actual debugger.
+MDB didn&rsquo;t know from its inception how to print ZFS block pointers in the form
+that we showed above. We had to teach it how to interpret the <code>blkptr</code> struct.
+MDB has the concept of modules, where a developer can write C code that uses
+MDB&rsquo;s API, compile it, and generate an object that can later be loaded by MDB
+in effect extending the debugger without recompiling it. GDB developers took
+this idea slightly further and embedded a Python interpreter in GDB, allowing
+users to define new commands in a Python file or even on the fly during a
+debugging session.</p>
+
+<p><strong><em>A good debugger is flexible and doesn&rsquo;t get in your way</em></strong>. Before GDB
+allowed users to extend it on the fly with Python, it was basically just a
+prompt with a laundry-list of commands. The user&rsquo;s ability to examine their target
+was limited to whatever the available commands were, effectively limiting the
+amount of questions the user can ask. Now that GDB has a Python API that can be
+used to access all the state of the target, that limitation is gone but the
+experience is still not optimal. You can ask any question you want, as long as
+you are willing to write Python code to get the answer. Debugging is an activity
+that requires focus and writing Python code during that time can break the
+user&rsquo;s focus (not to mention frustrate them if they get their spaces wrong and
+get syntax errors). MDB found a sweet spot on that front by allowing you to chain
+commands together with pipes like a UNIX shell. The next section provides
+a quick demonstration of how a few simple commands can be combined together
+through pipes to answer one-off questions about the system&rsquo;s state.</p>
+
+<h4 id="a-quick-demonstration-of-mdb-pipes">~ A Quick Demonstration of MDB pipes</h4>
+
+<p>To illustrate how powerful the concept of pipes in MDB is, let&rsquo;s assume that
+we want to print out the offsets and sizes of all the memory segments used
+by all processes in a live system. The relevant Illumos structures together
+with their relevant members are displayed below:</p>
+
+<pre><code>typedef struct proc {
+    ... &lt;cropped&gt; ...
+    struct as *p_as;  /* process address space pointer */
+    ... &lt;cropped&gt; ...
+} proc_t;
+
+struct as {
+    ... &lt;cropped&gt; ...
+    avl_tree_t a_segtree;  /* segments in this address space. */
+    ... &lt;cropped&gt; ...
+}
+
+struct seg {
+    caddr_t s_base; /* base virtual address */
+    size_t s_size;  /* size in bytes */
+    ... &lt;cropped&gt; ...
+};
+</code></pre>
+
+<p>Each process in the system is described by a <code>proc_t</code>. Each <code>proc_t</code> has a
+pointer to a <code>struct as</code> that describes its address space. Each address
+space has <code>a_segtree</code> which is an AVL tree where each node is a <code>struct seg</code>.
+Each address space segment is described by a <code>struct seg</code> - a struct which
+contains the two fields that we care for, <code>s_base</code> and <code>s_size</code>. So with the
+above in mind we start composing our pipeline. First of all, we need to go
+through all the <code>proc_t</code> structures, so we use the <code>::walk</code> command and pass
+it <code>proc</code> as an argument (there are a lot of details that I skip here - the
+important part is understanding what&rsquo;s happening, not the terminology).</p>
+
+<pre><code>&gt; ::walk proc
+0xfffffffffbc49080
+0xffffff31f3f83020
+0xffffff31f3f8c018
+0xffffff31f6fd4048
+0xffffff31fdc18020
+0xffffff31f4b1f050
+0xffffff32303d3050
+0xffffff32aaece050
+... &lt;cropped&gt; ...
+</code></pre>
+
+<p>So the above output shows the command printing all the pointers to all the
+<code>proc_t</code> structures on the system. If we wanted to print the contents of
+all of these structures we could pipe the output of this command to <code>::print</code>
+and instruct MDB to print all those pointers as <code>proc_t</code> structures:</p>
+
+<pre><code>&gt; ::walk proc |::print proc_t
+{
+    p_exec = 0
+    p_as = kas
+    p_lockp = p0lock
+    p_crlock = {
+        _opaque = [ 0 ]
+    }
+    p_cred = 0xffffff0373572db0
+    ... &lt;cropped&gt; ...
+}
+{
+    p_exec = 0xffffff03b8f68080
+    p_as = 0xffffff0388b04d48
+    p_lockp = 0xffffff03735b3440
+    p_crlock = {
+        _opaque = [ 0 ]
+    }
+    p_cred = 0xffffff0389781d38
+    p_swapcnt = 0
+... &lt;cropped&gt; ...
+</code></pre>
+
+<p>To continue our pipeline, we are only interested in the <code>p_as</code> member of all
+of these <code>proc_t</code> structures which point to their respective address space
+structures (<code>struct as</code>). Then from these ones we are only interested in their
+<code>a_segtree</code> member which is a pointer to the AVL tree of all the address space
+ segments of each process. To print that field for all the processes we
+continue our pipeline this:</p>
+
+<pre><code>&gt; ::walk proc |::print proc_t p_as-&gt;a_segtree
+p_as-&gt;a_segtree = {
+    p_as-&gt;a_segtree.avl_root = kvseg+0x20
+    p_as-&gt;a_segtree.avl_compar = as_segcompar
+    p_as-&gt;a_segtree.avl_offset = 0x20
+    p_as-&gt;a_segtree.avl_numnodes = 0x9
+    p_as-&gt;a_segtree.avl_size = 0x60
+}
+p_as-&gt;a_segtree = {
+    p_as-&gt;a_segtree.avl_root = kvseg+0x20
+    p_as-&gt;a_segtree.avl_compar = as_segcompar
+    p_as-&gt;a_segtree.avl_offset = 0x20
+    p_as-&gt;a_segtree.avl_numnodes = 0x9
+    p_as-&gt;a_segtree.avl_size = 0x60
+}
+... &lt;cropped&gt; ...
+</code></pre>
+
+<p>So now we have access to all the the AVL trees that contain all the segments
+of each process (MDB even pretty-printed them for us from the type info) and
+we want to go through all the nodes in those trees. We can do so by using
+the <code>::walk</code> command again and specifying that we are walking an AVL tree
+this time:</p>
+
+<pre><code>&gt; ::walk proc |::print proc_t p_as-&gt;a_segtree |::walk avl
+0xfffffffffbc85280
+0xfffffffffbc50160
+0xfffffffffbc4e4e0
+0xfffffffffbc51280
+0xfffffffffbc50080
+... &lt;cropped&gt; ...
+</code></pre>
+
+<p>Now all we need to do is to use <code>::print</code> again to specify that these pointers
+are <code>struct seg</code> structures and instruct it to print the two fields that we
+are interested in - <code>s_base</code> and <code>s_size</code>:</p>
+
+<pre><code>&gt; ::walk proc |::print proc_t p_as-&gt;a_segtree |::walk avl |::print struct seg s_base s_size
+s_base = 0xfffffe0000000000
+s_size = 0x200000000
+s_base = 0xffffff0000000000
+s_size = 0xd600000
+s_base = 0xffffff000d600000
+s_size = 0x80000000
+s_base = 0xffffff008d600000
+s_size = 0x29f400000
+s_base = 0xffffff036ca00000
+s_size = 0x4000000
+... &lt;cropped&gt; ...
+</code></pre>
+
+<p>Voila! Now to make our initial question more like something that you would ask
+in the real world, let&rsquo;s say that we are curious to know the size of the address
+space starting at offset <code>0xffffff036ca00000</code>. The output of the above command
+is humongous and it is not ordered by <code>s_base</code>, which doesn&rsquo;t help. Using the
+exclamation mark operator (<code>shell pipe</code> operator in MDB terms) we can pipe the
+output of an MDB command as the input to our UNIX shell effectively continuing
+the MDB pipeline as a shell pipeline. In our example case, we can use <code>grep</code> to
+locate <code>0xffffff036ca00000</code> and print the line after it which should be the
+value of its <code>s_size</code> member:</p>
+
+<pre><code>&gt; ::walk proc |::print proc_t p_as-&gt;a_segtree |::walk avl |::print struct seg s_base s_size ! grep 0xffffff036ca00000 -A 1
+s_base = 0xffffff036ca00000
+s_size = 0x4000000
+</code></pre>
+
+<h4 id="state-of-kernel-debuggers-in-linux">~ State of Kernel Debuggers in Linux</h4>
+
+<p>In order to fill the MDB hole in our transition to Linux we were faced with 3
+options: Create a debugger from scratch, port MDB to Linux, or pick up an
+existing project and implement the functionality that we need on top of it. The
+trade-offs involved in the above decision are multiple and include factors
+beyond technical ones such as the deadlines for our first release that would
+require a minimum viable product, or the benefits and risks of creating and
+maintaining a debugger ourselves. After surveying the landscape of debugging
+tools in the Linux world we decided that the best way forward for us was to
+take the third approach.</p>
+
+<p>We first looked at vanilla GDB and <a href="https://www.kernel.org/doc/html/latest/dev-tools/kgdb.html">KGDB</a>.
+The main benefits of GDB is that it is a widely used debugger that works for
+almost any architecture out there, and can be easily extended through its Python
+API. Unfortunately plain GDB doesn&rsquo;t work with a running kernel nor kernel
+crash dumps out of the box anymore. The introduction of kernel address space
+randomization (KASLR) and various changes in how initial symbols are set up
+and accessed in the kernel made it hard for GDB to correctly attach to any
+kernel target. KGDB deals with those issues for live systems but involves
+having a second system which uses GDB to attach to the first one in order to
+debug it. This is impossible to do given how we currently ship our product to
+our customers and overall inflexible for production, especially for on-prem
+customers.</p>
+
+<p>The next place that we looked at was Dave Anderson&rsquo;s <a href="https://people.redhat.com/anderson/crash_whitepaper/">crash</a>
+utility. This tool consists of a layer that understands the kernel&rsquo;s structure
+and an embedded version of GDB 7.6 to provide a familiar debugging experience.
+It can also debug multiple targets such as kernel crash dumps created by VMware
+snapshots or KVM. Unfortunately, it is not very easy to extend. It comes with a
+module system and a C API but the API is bare and not well-designed (it doesn&rsquo;t
+give you easy access to things like type information, error-handling is tricky,
+etc&hellip;). We did create a prototype that enabled the Python interpreter in the
+GDB version embedded into <code>crash</code> but the interaction between components is
+mostly one-directional (the <code>crash</code> layer accesses the GDB API but not the
+opposite) making it hard to request and interpret data from <code>crash</code> in the
+Python interpreter of GDB.</p>
+
+<p>We then stumbled upon Jeff Mahoney&rsquo;s <a href="https://github.com/jeffmahoney/crash-python">crash-python</a>.
+Jeff&rsquo;s tool is a patched version of GDB that can read kernel crash dumps by
+leveraging Petr Tesarik&rsquo;s <a href="https://github.com/ptesarik/libkdumpfile">libkdumpfile</a>.
+It is overall well-designed and put together. The downstream patch on GDB
+is a Python wrapper on top of GDB&rsquo;s Target API which is written in C, and is
+used to plug into libkdumpfile which also exposes a Python API. Unfortunately
+that patch has been in the GDB mailing list for years now with no updates
+even though Jeff has been good at staying up to date with upstream changes.
+There is also the problem that <code>crash-python</code> doesn&rsquo;t work with live-systems.
+At Delphix, we did create a prototype library in Python that plugs into Jeff&rsquo;s
+GDB Python Target API with some results, but there were still a few issues
+that would require us to change internal parts of GDB in order to implement a
+proper solution.</p>
+
+<p>Around that time we came across Omar Sandoval&rsquo;s <a href="https://drgn.readthedocs.io/en/latest/index.html">drgn</a>
+project (pronounced &ldquo;dragon&rdquo;). <code>drgn</code> is a tool that leverages a small C library
+(<code>libdrgn</code>) to enable the introspection of running kernels and vmcores in Python,
+either through the REPL or in the form of a script. It&rsquo;s API and Object model
+are well-designed, and its command execution speed (including startup) is quick.
+The tool&rsquo;s approach and design is similar to Plan 9&rsquo;s <a href="http://doc.cat-v.org/plan_9/2nd_edition/papers/acid/">Acid</a>
+debugger but a defining difference is the choice of the scripting language.
+Instead of inventing its own language, <code>drgn</code> leverages the Python runtime
+which means that <code>drgn</code> scripts can leverage any 3rd party library from Python&rsquo;s
+ecosystem. For example, a <code>drgn</code> script could import <a href="https://plot.ly/python/">plotly</a>
+and use it to generate useful visualizations of data introspected from the
+kernel.</p>
+
+<p>While <code>drgn</code> is still a young project that currently misses certain features
+(e.g. function arguments in stack traces), it still checks most of the boxes in
+our checklist.  Thus, we decided to choose it as our base for kernel debugging
+in Linux. Omar has been open to accepting our changes and the community around
+the project, even though small, has been growing.</p>
+
+<h4 id="the-slick-debugger">~ The Slick Debugger</h4>
+
+<p>Based on our criteria of what makes a good debugger, <code>drgn</code> is still not an
+optimal solution in terms user experience. The user needs to either write
+one-off Python scripts or define functions and loops in the Python REPL. This
+is why we decided to add another layer on top of it which we ended up calling
+SDB (short for Slick Debugger). SDB is a debugger written in Python that
+leverages the <code>drgn</code> API to provide a debugging experience similar to MDB.
+In simple terms, a <code>drgn</code> user can leverage the constructs provided by SDB
+to make their one-off <code>drgn</code> scripts re-usable, plugging the output of one
+script as the input to another.</p>
+
+<p>In MDB the currency of commands moved through pipes was integer values and
+pointers. In SDB it is <code>drgn</code> objects and this is what makes it &ldquo;slick&rdquo;.
+<code>drgn</code> objects come with their own context, such as type information, allowing
+commands to be smarter and do more work for the user. To demonstrate, in the
+MDB example above we constructed the following pipeline:</p>
+
+<pre><code>&gt; ::walk proc |::print proc_t p_as-&gt;a_segtree |::walk avl |::print struct seg s_base s_size ! grep 0xffffff036ca00000 -A 1
+</code></pre>
+
+<p>In SDB the same pipeline would look something like this:</p>
+
+<pre><code>&gt; procs | member p_as-&gt;a_segtree | walk | cast struct seg | filter obj.s_base == 0xffffff036ca00000 | member s_size
+</code></pre>
+
+<p>Note the following differences:</p>
+
+<ol>
+<li><code>procs</code> returns the list of all processes - no need for the <code>::walk &lt;arg&gt;</code> command.</li>
+<li>In SDB we are passing objects together with the type and thus we don&rsquo;t need to type cast as we do with <code>::print</code>.</li>
+<li>The <code>walk</code> command in SDB chooses the write walk for the user given the type of the object it is passed.</li>
+<li>A basic <code>filter</code> command is easy to implement in SDB, allowing the user to avoid hacky text parsing with <code>grep</code>.</li>
+</ol>
+
+<p>The code for SDB can be found in our <a href="https://github.com/delphix/sdb">Github repo</a>.
+Just like <code>drgn</code>, it is a young project and so we are still in the process of
+rewriting some parts, dealing with rough edges, and adding more features.
+While still in early stages, it&rsquo;s been used with some success internally and
+currently ships with all our new internal VMs. I am planning to post more
+about the development of SDB, including a tutorial for using it and writing
+new commands, so stay tuned!</p>
+
+<h4 id="appendix-a-summarized-timeline-and-hidden-figures">~ Appendix A: Summarized Timeline and Hidden Figures</h4>
+
+<p>The journey to finding an MDB replacement in the Linux world has been long
+with a lot of twists and dead ends along the way, and there is still lot of
+work to be done. That said, it is safe to say that we are at the point that
+we just need to sit down and do the work. Getting to this point wouldn&rsquo;t have
+been possible without the team-effort and coordination of multiple individuals
+including a few external to Delphix.</p>
+
+<p>Prakash Surya and Don Brady were instrumental in constructing an MDB prototype
+in illumos that can read Linux
+crash dumps. Robert Mustacchi was also helpful by letting us pick his brain
+when it came to CTF internals. Prakash and Tom Caputi were the people that put
+the work and created a crash-python prototype that can analyze live-systems
+successfully. Matt Ahrens and Paul Dagnelie implement pipes in the first SDB
+prototype that was based on top of crash-python. Once that
+was in place, multiple people started contributing commands and submitting
+feedback for SDB - in alphabetical order: Don Brady(<code>blkptr</code>), Paul Dagnelie
+(<code>zfs_dbgmsg</code>), John Gallagher(<code>stacks</code>), Sara Hartse(<code>stacks</code>), Prashanth
+Sreenivasa(<code>arcstat</code>), George Wilson(<code>spa</code> &amp; <code>vdev</code>), Pavel Zakharov. Pavel
+was also the illustrator of the first SDB logo displayed at the end of this
+post. Omar Sandoval, the creator of <code>drgn</code>, was very open and helpful with his
+feedback when we tried to get our patches upstreamed to <code>drgn</code>. Once the new
+SDB+<code>drgn</code> prototype proved viable, Prakash single-handedly ported all of our
+existing code on top of <code>drgn</code>. Once that was done and we were ready to create
+our open source repo, Karyn Ritter was the person that helped us establishing a
+license for SDB through proper procedures. Matt Ahrens, Sebastian Roy, Eric
+Shrock, and George Wilson were our advocates throughout these times within the
+System Platforms leadership, convincing upper management that this project is
+worth pursuing. To all of the above people, thank you for all your work, advice,
+and feedback. I&rsquo;m excited to see the things that we&rsquo;ll do next!</p>
+
+<p align="center">
+  <img src="https://sdimitro.github.io/img/sdb/sdb-original-logo.jpg" width="50%" height="50%"/>
+</p>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io""OS Debugging At Delphix - From Illumos to Linux";
+	   this.page.identifier = "OS Debugging At Delphix - From Illumos to Linux";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script type="application/javascript">
+var doNotTrack = false;
+if (!doNotTrack) {
+	(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+	(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+	m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+	})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+	ga('create', 'UA-78963448-1', 'auto');
+	
+	ga('send', 'pageview');
+}
+</script>
+
+
