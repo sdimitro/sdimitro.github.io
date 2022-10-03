@@ -18,10 +18,7 @@
 			</div>
 		</h1>
    <div class="content">
-     
-
-<h3 id="background">Background</h3>
-
+     <h3 id="background">Background</h3>
 <p>During the OpenZFS summit last year (2016), Dan Kimmel and I quickly hacked
 together the <code>zpool checkpoint</code> command in ZFS, which allows reverting an
 entire pool to a previous state. Since it was just for a hackathon, our
@@ -31,9 +28,7 @@ was able to start the implementation on my own. I completed the implementation
 last month, and we&rsquo;re now running regression tests, so I decided to write this
 blog post explaining what a storage pool checkpoint is, why we need it within
 Delphix, and how to use it.</p>
-
 <h3 id="motivation">Motivation</h3>
-
 <p>The Delphix product is basically a VM running DelphixOS (a derivative of illumos)
 with our application stack on top of it. During an upgrade, the VM reboots into the
 new OS bits and then runs some scripts that update the environment (directories,
@@ -44,7 +39,6 @@ rollback script that attempts to bring ZFS and our app stack back to their
 previous state. This is very tricky as we need to undo every single modification
 applied to ZFS (including dataset creation and renaming, or enabling new zpool
 features).</p>
-
 <p>The idea of Storage Pool Checkpoint (aka <code>zpool checkpoint</code>) deals with exactly
 that. It can be thought of as a &ldquo;pool-wide snapshot&rdquo; (or a variation of extreme
 rewind that doesn&rsquo;t corrupt your data). It remembers the entire state of the pool
@@ -55,19 +49,14 @@ of the pool before performing the actions, then rewinds back to it if one of the
 fails or puts the pool into an unexpected state. Otherwise, she discards it. With
 the assumption that no one else is making modifications to ZFS, she basically
 wraps all these actions into a &ldquo;high-level transaction&rdquo;.</p>
-
 <p>In the Delphix product, the scenario is a specific case of the generic use case.
 We take a checkpoint during upgrade before performing any changes to ZFS and
 rewind back to it if something unexpected happens.</p>
-
 <h3 id="usage">Usage</h3>
-
 <p>All the reference material on how to use <code>zpool checkpoint</code> is part of the
 <code>zfs(1m)</code> man page. That said, this section demonstrates most of its
 functionality with a simple example.</p>
-
 <p>First we create a pool and some dummy datasets:</p>
-
 <pre><code>$ zpool create testpool c1t1d0
 $ zfs create testpool/testfs0
 $ zfs create testpool/testfs1
@@ -75,11 +64,9 @@ $ zpool list testpool
 NAME       SIZE  ALLOC   FREE  CKPOINT  EXPANDSZ   FRAG    CAP  DEDUP  HEALTH  ALTROOT
 testpool  7.50G   194K  7.50G        -         -     0%     0%  1.00x  ONLINE  -
 </code></pre>
-
 <p>As you can see, the <code>zpool list</code> command has a new column called <code>CKPOINT</code> that
 is currently empty. Then we take a checkpoint and perform some destructive
 actions:</p>
-
 <pre><code>$ zpool checkpoint testpool
 $ zfs destroy testpool/testfs0
 $ zfs rename testpool/testfs1 testpool/testfs2
@@ -103,7 +90,6 @@ config:
 
 errors: No known data errors
 </code></pre>
-
 <p>After checkpointing the pool, destroying the first dataset and renaming the
 second one, we see that <code>zpool list</code> and <code>zpool status</code> have some new information
 for us. The <code>CKPOINT</code> column has been populated now and is the same number as
@@ -111,10 +97,8 @@ the one displayed by <code>zpool status</code> in the <code>checkpoint</code> ro
 of space has been freed in the current state of the pool, but we keep it around
 because it is part of the checkpoint (so we can later rewind back to it if we
 choose to).</p>
-
 <p>To take a look at the checkpointed state of the pool without actually rewinding
 to it we can do the following:</p>
-
 <pre><code>$ zpool export testpool
 $ zpool import -o readonly=on --rewind-to-checkpoint testpool
 $ zfs list -r testpool
@@ -129,10 +113,8 @@ NAME               USED  AVAIL  REFER  MOUNTPOINT
 testpool           115K  7.27G    23K  /testpool
 testpool/testfs2    23K  7.27G    23K  /testpool/testfs2
 </code></pre>
-
 <p>To rewind the whole pool back to the checkpointed state, discarding any change
 that happened after it was taken:</p>
-
 <pre><code>$ zpool export testpool
 $ zpool import --rewind-to-checkpoint testpool
 $ zfs list -r testpool
@@ -141,17 +123,13 @@ testpool           129K  7.27G    23K  /testpool
 testpool/testfs0    23K  7.27G    23K  /testpool/testfs0
 testpool/testfs1    23K  7.27G    23K  /testpool/testfs1
 </code></pre>
-
 <p>To discard the checkpoint when it is not needed anymore:</p>
-
 <pre><code>$ zpool checkpoint --discard testpool
 $ zpool list testpool
 NAME       SIZE  ALLOC   FREE  CKPOINT  EXPANDSZ   FRAG    CAP  DEDUP  HEALTH  ALTROOT
 testpool  7.50G   289K  7.50G        -         -     0%     0%  1.00x  ONLINE  -
 </code></pre>
-
 <h3 id="caveats">Caveats</h3>
-
 <p>Taking a checkpoint of the whole state of the pool and rewinding back to it is
 a heavy-weight solution and imposing some limits to its usage was required to
 ensure that users cannot introduce any unrecoverable errors to their storage pools.
@@ -163,26 +141,21 @@ expected to find data in a vdev
 that was removed after the checkpoint was taken. Similar reasoning was used for
 the other aforementioned operations. As for <code>vdev add</code>, although it is supported,
 the user has to re-add the device in the case of a rewind.</p>
-
 <p>Taking a checkpoint while a device is being removed is also disallowed. Again,
 the checkpoint references the whole state of the pool including the state of
 any ongoing operations. Device removal for top-level vdevs is a vdev config
 change that can span multiple transactions. It would be wrong to rewind back
 to the checkpoint and attempt to finish the removal of a device that has been
 removed already.</p>
-
 <p>Another important note for pools that have a checkpoint is the fact that scrubs
 do not traverse any checkpointed data that has been freed in the current state
 of the pool. Thus, in the case of errors, these data cannot be detected from
 the current state of the pool (<code>zdb(1m)</code> can actually detect them, but cannot
 repair them).</p>
-
 <p>Finally, due to a technical reason that I will go through in a different post,
 dataset reservations may be unenforceable while a checkpoint exists and the pool
 is struggling to find space.</p>
-
-<hr />
-
+<hr>
 <p>I hope that this post was helpful. Another post should be out soon with more
 technical details about how this feature is implemented and hopefully answer
 why the above caveats currently exist.  Feel free to email me with any questions
@@ -211,16 +184,14 @@ or feedback.</p>
 <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
 
 
-<script type="application/javascript">
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-SS5F7WT4HC"></script>
+<script>
 var doNotTrack = false;
 if (!doNotTrack) {
-	(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-	(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-	m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-	})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
-	ga('create', 'UA-78963448-1', 'auto');
-	
-	ga('send', 'pageview');
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){dataLayer.push(arguments);}
+	gtag('js', new Date());
+	gtag('config', 'G-SS5F7WT4HC', { 'anonymize_ip': false });
 }
 </script>
 

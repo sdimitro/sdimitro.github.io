@@ -30,7 +30,6 @@ post</a>
 for these memory-related issues and how we deal with them in illumos/DelphixOS.
 Most of the insights in his post carry over to Linux as-is, except the analysis
 of the native heap.</p>
-
 <p><code>libumem</code> (a library that can be though of as the kernel slab allocator but for
 the userland in illumos) was build with debuggability in mind and it can
 <a href="https://illumos.org/man/3MALLOC/umem_debug">optionally keep track of extra
@@ -42,22 +41,24 @@ leaks</a>
 and memory exhaustion. At Delphix, we’ll soon be in the process of figuring out
 the procedures/tools that we’ll be using to deal with such issues in Linux
 which I believe will look something like this:</p>
-
 <ol>
-<li><p>Look what the existing memory allocators, like glibc and jemalloc, offer in
-terms of debugging infrastructure.</p></li>
-
-<li><p>Consider how appropriate <a href="https://github.com/gburd/libumem">existing ports</a>
+<li>
+<p>Look what the existing memory allocators, like glibc and jemalloc, offer in
+terms of debugging infrastructure.</p>
+</li>
+<li>
+<p>Consider how appropriate <a href="https://github.com/gburd/libumem">existing ports</a>
 of the illumos libumem in Linux or Bonwick’s newer
 <a href="https://github.com/thecodeteam/dssd/tree/master/lib/libvmem">libvmem</a> from
-DSSD are for our use-case.</p></li>
-
-<li><p>Once these have been examined, pick the one that gives the best trade-off in
+DSSD are for our use-case.</p>
+</li>
+<li>
+<p>Once these have been examined, pick the one that gives the best trade-off in
 terms of performance, debuggability, community involvement, and maintenance
 burden. Then write SDB commands for it and potentially attempt to contribute
-any missing functionality upstream.</p></li>
+any missing functionality upstream.</p>
+</li>
 </ol>
-
 <p>While the above is most probably what will end up happening there is always the
 option of creating a solution from scratch — an option that I believe should
 always be considered. To be pragmatic, I don’t think that writing a memory
@@ -65,7 +66,6 @@ allocator from scratch just for our use-case is worthwhile given our current
 resources and constraints regardless of how fun it may sound at first. On the
 other hand though, attempting to implement just the debugging facilities that
 we are missing in an allocator-agnostic way may not be as far fetched.</p>
-
 <p>With the above idea in mind, I spent a few hours between Christmas Eve and New
 Years to write <a href="https://github.com/sdimitro/libdmem">libdmem</a>. The library is
 in experimental stages (and probably will remain like that) and it provides the
@@ -77,54 +77,43 @@ metadata. The metadata currently consist of a pointer to the thread that made
 the allocation, 10 pointers that record the program counters at the top of the
 stack, and 2 pointers that allow the segment to be added in a doubly-linked
 list.</p>
-
 <p>I’ve successfully ran standard Linux utilities (<code>ls</code>, <code>cat</code>, etc..) and few
 more complex programs like <code>vim</code>, <code>wget</code>, and <code>python3</code> with <code>libdmem</code>
 interposed on top of glibc and jemalloc. I’ve also generated core dumps from
 these runs and ensured that I could walk the linked lists and print the stacks
 successfully. For a quick demonstration on the <code>driver</code> program below:</p>
-
-<pre><code>int
+<pre tabindex="0"><code>int
 main(void)
 {
     char *p = malloc(512);
     for (int i = 0; i &lt; 510; i++)
-        p[i] = 'A' + (i % 26);
-    p[511] = '\0';
-    printf(&quot;%s\n&quot;, p);
+        p[i] = &#39;A&#39; + (i % 26);
+    p[511] = &#39;\0&#39;;
+    printf(&#34;%s\n&#34;, p);
     free(p);
     /* leak! */
     p = malloc(2048);
     for (int i = 0; i &lt; 2046; i++)
-        p[i] = 'A' + (i % 26);
-    p[2047] = '\0';
-    printf(&quot;%s\n&quot;, p);
+        p[i] = &#39;A&#39; + (i % 26);
+    p[2047] = &#39;\0&#39;;
+    printf(&#34;%s\n&#34;, p);
     return 0;
 }
-</code></pre>
-
-<p>We run the program and interpose <code>libdmem</code> on it like this:</p>
-
-<pre><code>$ DMEM_OPTS=trace-stderr,log-allocs,abort-shutdown LD_PRELOAD=./libdmem.so ./driver
-</code></pre>
-
-<p>Because we’ve enabled <code>trace-stderr</code> we print all the calls to <code>malloc()</code> and
+</code></pre><p>We run the program and interpose <code>libdmem</code> on it like this:</p>
+<pre tabindex="0"><code>$ DMEM_OPTS=trace-stderr,log-allocs,abort-shutdown LD_PRELOAD=./libdmem.so ./driver
+</code></pre><p>Because we’ve enabled <code>trace-stderr</code> we print all the calls to <code>malloc()</code> and
 friends as they happen:</p>
-
-<pre><code>malloc(512) = 0x557abe66f2d0  // &lt;-- first malloc() call
+<pre tabindex="0"><code>malloc(512) = 0x557abe66f2d0  // &lt;-- first malloc() call
 malloc(1024) = 0x557abe66f550 // &lt;-- printf() allocation
 ABCDEFGH...&lt;cropped&gt;...
 free(0x557abe66f2d0)
 malloc(2048) = 0x557abe66f9d0 // &lt;-- second malloc() call
 ABCDEFGH...&lt;cropped&gt;...
-</code></pre>
-
-<p>Generating a core-dump at the end of the program run we use a rudimentary <a href="https://github.com/sdimitro/libdmem/blob/master/libdmem-gdb.py#L51">gdb
+</code></pre><p>Generating a core-dump at the end of the program run we use a rudimentary <a href="https://github.com/sdimitro/libdmem/blob/master/libdmem-gdb.py#L51">gdb
 command</a>
 that I wrote in Python that goes through all the leaks and shows the stack
 trace of their allocation:</p>
-
-<pre><code>$ gdb driver /var/crash/core.driver.29714.1577846611
+<pre tabindex="0"><code>$ gdb driver /var/crash/core.driver.29714.1577846611
 (gdb) source ./libdmem-gdb.py
 (gdb) show_alloc_stacks
 0x557abe66f960 allocated from 0x7f7a52ec8740 at:
@@ -142,15 +131,12 @@ trace of their allocation:</p>
         main+1638
         __libc_start_main+231
         _start+42
-</code></pre>
-
-<p>The first stack trace is from the leak in our C program (the 2048-byte
+</code></pre><p>The first stack trace is from the leak in our C program (the 2048-byte
 allocation). The second stack trace is not an actual leak. The allocation
 happened as part of the first <code>printf()</code> call and is actually freed after our
 program exits as glibc gets unloaded. Unfortunately, I wasn’t able to get a
 core dump exactly at that point, so the allocation shows up in the above
 report.</p>
-
 <p>I’ve learned a lot writing this library and many of those lessons I’ve tried
 documenting in the comments of the code (e.g. <a href="https://github.com/sdimitro/libdmem/blob/master/dmem.c#L437">interposing malloc()
 correctly</a> while
@@ -184,16 +170,14 @@ that it induces for our workloads.</p>
 <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
 
 
-<script type="application/javascript">
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-SS5F7WT4HC"></script>
+<script>
 var doNotTrack = false;
 if (!doNotTrack) {
-	(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-	(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-	m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-	})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
-	ga('create', 'UA-78963448-1', 'auto');
-	
-	ga('send', 'pageview');
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){dataLayer.push(arguments);}
+	gtag('js', new Date());
+	gtag('config', 'G-SS5F7WT4HC', { 'anonymize_ip': false });
 }
 </script>
 

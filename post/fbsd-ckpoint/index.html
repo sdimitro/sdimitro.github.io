@@ -18,17 +18,12 @@
 			</div>
 		</h1>
    <div class="content">
-     
-
-<p><em>I wrote the following article for the 2018 November/December Edition of the
+     <p><em>I wrote the following article for the 2018 November/December Edition of the
 <a href="https://www.freebsdfoundation.org/journal/">FreeBSD Journal</a>. If you are a
 FreeBSD user/developer, I highly recommend the magazine for insights in the
 latest developments of FreeBSD.</em></p>
-
-<hr />
-
-<h3 id="introduction">- Introduction -</h3>
-
+<hr>
+<h3 id="--introduction--">- Introduction -</h3>
 <p>In March of this year (2018), Alexander Motin (<code>mav@freebsd.org</code>) ported the Pool Checkpoint
 feature of OpenZFS from Illumos to FreeBSD. A pool checkpoint can be thought of as a “poolwide
 snapshot” that captures the entire state of the pool at the time the checkpoint is created,
@@ -44,9 +39,7 @@ already two tutorials online demonstrating how to use this feature, and a block 
 source code that gives a high-level overview of its implementation (see the References box).
 This article lies somewhere in the middle, giving a high-level description of what happens under
 the hood during each administrative operation.</p>
-
-<h3 id="checkpointing-a-pool">- Checkpointing a Pool -</h3>
-
+<h3 id="--checkpointing-a-pool--">- Checkpointing a Pool -</h3>
 <p>In ZFS we keep track of changes over time with Transaction Groups (aka TXGs). During each TXG,
 ZFS accumulates changes in memory and, when certain conditions are met, it syncs those changes
 to disk, then opens the next TXG. Each data block records the TXG during which it was created,
@@ -56,14 +49,11 @@ step when syncing to disk is writing the new uberblock to the beginning and end 
 an area called the ZFS label, which is different from the EFI label.  Each uberblock is the root
 of the tree of the entire state of the pool for that TXG. Uberblocks are used during pool import
 as a starting point to find the latest version of all of the pool’s data and metadata.</p>
-
 <p>Whenever an administrator checkpoints a pool (with the <code>zpool checkpoint</code> command), ZFS copies
 the uberblock of the current TXG to an area within the pool’s state called the Meta-Object Set
 (MOS). When this change is synced to disk, the uberblocks from subsequent TXG’s reference the
 “checkpointed” uberblock through the MOS.</p>
-
-<h3 id="the-lifetime-of-a-block-in-a-checkpointed-pool">- The Lifetime of a Block in a Checkpointed Pool -</h3>
-
+<h3 id="--the-lifetime-of-a-block-in-a-checkpointed-pool--">- The Lifetime of a Block in a Checkpointed Pool -</h3>
 <p>When a checkpoint exists, the process of allocating new blocks stays the same, but the process
 of freeing blocks is different. We can’t free blocks that belong to the checkpoint because we
 want to be able to rewind back to that point in time. At the same time, we can’t stop freeing
@@ -75,9 +65,7 @@ uberblock). These “checkpointed” blocks are never actually freed. Instead, w
 to lists on-disk we call checkpoint spacemaps (there is one per vdev) and leave their segments
 marked as allocated so they are not reused by the pool. Blocks whose birth TXGs are after the
 checkpoint’s TXG, are not part of the checkpointed state and can be freed normally.</p>
-
-<h3 id="rewinding-to-the-checkpoint">- Rewinding to the Checkpoint -</h3>
-
+<h3 id="--rewinding-to-the-checkpoint--">- Rewinding to the Checkpoint -</h3>
 <p>If administrators want to rewind back to the checkpoint, all they need to do is to export and
 then reimport the pool with the rewind option (<code>zpool import --rewind-to-checkpoint</code>). In this
 case, the import process takes place as usual, but with one additional step. ZFS first looks
@@ -88,14 +76,11 @@ complete. The checkpoint spacemaps no longer exist as they were created after th
 uberblock (which is now the current uberblock). For the same reason, there is no checkpoint
 uberblock in the MOS. This means that after rewinding there is no additional cleanup and the pool
 no longer has a checkpoint.</p>
-
 <p>It is also possible to import a checkpoint read-only to access the pool in the state it existed
 at the time of the checkpoint without actually undoing all of the changes that have happened
 since the checkpoint was created. This can allow the administrator to recover specific data or
 a filesystem that was destroyed without rolling back the entire pool.</p>
-
-<h3 id="discarding-the-checkpoint">- Discarding the Checkpoint -</h3>
-
+<h3 id="--discarding-the-checkpoint--">- Discarding the Checkpoint -</h3>
 <p>If administrators decide to get rid of the checkpoint, they run the discard command
 (<code>zpool checkpoint --discard</code>). The command instructs ZFS to get rid of the checkpointed uberblock
 from the MOS. At that point, the pool is considered to no longer have a checkpoint, which allows
@@ -106,22 +91,22 @@ depending on how long the checkpoint has existed and how many changes have been 
 Freeing them all in a single TXG would be expensive. Instead, ZFS spawns a thread that frees them
 over the course of multiple TXGs by prefetching them into memory in chunks and freeing one chunk
 per TXG.</p>
-
-<h3 id="acknowledgement">- Acknowledgement -</h3>
-
+<h3 id="--acknowledgement--">- Acknowledgement -</h3>
 <p>The development of this feature would not have been possible without the help of my colleagues
 from Delphix, especially Dan Kimmel who started the initial prototype with me, and Matt Ahrens
 for guiding me every step of the way. I’d also like to thank Alexander Motin for porting the
 feature to FreeBSD, and Marius Zaborski for promoting it.</p>
-
-<h3 id="references">- References -</h3>
-
+<h3 id="--references--">- References -</h3>
 <ol>
-<li><p><a href="https://sdimitro.github.io/post/zpool-checkpoint/">Serapheim&rsquo;s Checkpoint Tutorial</a></p></li>
-
-<li><p><a href="https://oshogbo.vexillium.org/blog/46/">Marius&rsquo; Checkpoint Tutorial</a></p></li>
-
-<li><p><a href="https://github.com/freebsd/freebsd/blob/master/sys/cddl/contrib/opensolaris/uts/common/fs/zfs/spa_checkpoint.c">Implementation Overview Block Comment in the source</a></p></li>
+<li>
+<p><a href="https://sdimitro.github.io/post/zpool-checkpoint/">Serapheim&rsquo;s Checkpoint Tutorial</a></p>
+</li>
+<li>
+<p><a href="https://oshogbo.vexillium.org/blog/46/">Marius&rsquo; Checkpoint Tutorial</a></p>
+</li>
+<li>
+<p><a href="https://github.com/freebsd/freebsd/blob/master/sys/cddl/contrib/opensolaris/uts/common/fs/zfs/spa_checkpoint.c">Implementation Overview Block Comment in the source</a></p>
+</li>
 </ol>
 
    </div>
@@ -147,16 +132,14 @@ feature to FreeBSD, and Marius Zaborski for promoting it.</p>
 <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
 
 
-<script type="application/javascript">
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-SS5F7WT4HC"></script>
+<script>
 var doNotTrack = false;
 if (!doNotTrack) {
-	(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-	(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-	m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-	})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
-	ga('create', 'UA-78963448-1', 'auto');
-	
-	ga('send', 'pageview');
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){dataLayer.push(arguments);}
+	gtag('js', new Date());
+	gtag('config', 'G-SS5F7WT4HC', { 'anonymize_ip': false });
 }
 </script>
 

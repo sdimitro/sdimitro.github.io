@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>Core Dump</title>
@@ -6,11 +6,7 @@
     <description>Recent content on Core Dump</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Thu, 04 Nov 2021 02:00:00 -0700</lastBuildDate>
-    
-	<atom:link href="https://sdimitro.github.io/index.xml" rel="self" type="application/rss+xml" />
-    
-    
+    <lastBuildDate>Thu, 04 Nov 2021 02:00:00 -0700</lastBuildDate><atom:link href="https://sdimitro.github.io/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>Bonwick&#39;s ZFS Blog Posts [Mirror]</title>
       <link>https://sdimitro.github.io/post/bonwick-posts/</link>
@@ -88,7 +84,7 @@ An interesting detail of this test is that running it on a system that just boot
       
       <guid>https://sdimitro.github.io/post/ozfs-summit-videos/</guid>
       <description>All the videos for the OpenZFS summit (including the lightning talks) are now online and can be found here.
-Day 1 - Faster Allocation with the Log Spacemap   Day 2 - Storage Pool Checkpoint   [BONUS] - Source Code for Storage Pool Checkpoint The original source code of the zpool checkpoint for DelphixOS is now online on Github and can be found here. As you can see the commit day is the 5th of April earlier this year, so the code has been soaking for some months now with one bug found and fixed since then.</description>
+Day 1 - Faster Allocation with the Log Spacemap Day 2 - Storage Pool Checkpoint [BONUS] - Source Code for Storage Pool Checkpoint The original source code of the zpool checkpoint for DelphixOS is now online on Github and can be found here. As you can see the commit day is the 5th of April earlier this year, so the code has been soaking for some months now with one bug found and fixed since then.</description>
     </item>
     
     <item>
@@ -165,15 +161,6 @@ Recently on illumos-core, I was working on an issue that had the goal of removin
       
       <guid>https://sdimitro.github.io/post/scripting-gdb/</guid>
       <description>Motivation Two semesters ago, I was introduced to gdb in my systems programming course. Since this was the first time that I used an actual debugger, I was really impressed by the things it could do. I wanted to see what gdb was capable of, so I tried every single command on simple programs. Unfortunately, by the time I actually needed gdb in my class projects I forgot most of them.</description>
-    </item>
-    
-    <item>
-      <title></title>
-      <link>https://sdimitro.github.io/slides/storage-pool-checkpoint/</link>
-      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
-      
-      <guid>https://sdimitro.github.io/slides/storage-pool-checkpoint/</guid>
-      <description>Storage Pool Checkpoint  var notesEnabled = false ;    Storage Pool Checkpoint 25 October 2017  Serapheim Dimitropoulos  Delphix     Timeline   Started with Dan Kimmel at last year&#39;s hackathon Redesigned from scratch later that year Pushed in product last spring and soaking since then   Can only be upstreamed after Device Removal. Help us get there :-)  Motivation   Motivation  Upgrading a Delphix Engine  Reboot to new OS version Run several upgrade scripts   Each upgrade script  Manipulates ZFS datasets and their properties Has a respective rollback script in case it fails    Motivation  Problems with rollback scripts  Tedious &amp;amp; time-consuming to write but most importantly, error-prone   The main problem with our rollback  Upgrade scripts manipulate datasets (not files!</description>
     </item>
     
   </channel>

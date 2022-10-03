@@ -18,10 +18,7 @@
 			</div>
 		</h1>
    <div class="content">
-     
-
-<h3 id="motivation">Motivation</h3>
-
+     <h3 id="motivation">Motivation</h3>
 <p>Two semesters ago, I was introduced to gdb in my systems
 programming course. Since this was the first time that I
 used an actual debugger, I was really impressed by the
@@ -29,7 +26,6 @@ things it could do. I wanted to see what gdb was capable
 of, so I tried every single command on simple programs.
 Unfortunately, by the time I actually needed gdb in my
 class projects I forgot most of them.</p>
-
 <p>To be honest, I was just using gdb whenever I got
 segmentation faults from my programs. I would quickly run
 to the point where the program had the segmentation fault
@@ -42,7 +38,6 @@ is distant from the point in the program where the
 existence of the bug became apparent. In these cases, just
 skimming to the end where the error shows up, doesn&rsquo;t
 really help.</p>
-
 <p>Being a tutor for CS classes in my school, I had a lot of
 students that had buggy programs which misbehaved this way.
 Since their programs had a large number of lines for course
@@ -51,7 +46,6 @@ and learn more commands. Although that helped 30% of the
 students, the majority of them still had problems. They
 didn&rsquo;t want to use gdb because it was really tedious and
 repetitive for them.</p>
-
 <p>They were right! Most of their bugs would show up randomly
 in a function after the 20th time that function was executed
 and still they weren&rsquo;t able to tell if the bug started before
@@ -61,7 +55,6 @@ They would prefer looking at their source again and again to
 figure out the problem. Some of them would even rewrite their
 code using different (and usually more complex) program logic,
 hoping that the bug would go away.</p>
-
 <p>I decided to have a look at the scripting capabilities of gdb
 and maybe try to help the students efficiently. I did find
 some useful information actually and managed to help a lot of
@@ -73,19 +66,15 @@ and it doesn&rsquo;t take that much time to teach. On the other hand,
 I would prefer spending my time as a tutor actually teaching
 people new material and not have my brain fried after trying
 to understand/debug some person&rsquo;s code for hours.</p>
-
 <h3 id="tutorial">Tutorial</h3>
-
 <p>By default during startup, gdb executes the file <code>.gdbinit</code>.
 This is where you write your gdb code. In case you want to
 have many scripts that test different things, you can tell
 gdb to look at other scripts besides the default one by adding
 the <code>--command=&lt;filename&gt;</code> argument when running gdb.</p>
-
 <p>So let&rsquo;s say that you want a backtrace every time a specific
 function is called. This is extremely useful when debugging
 recursive functions!. You would write the following code:</p>
-
 <pre><code>set pagination off
 set logging file gdb.output
 set logging on
@@ -102,7 +91,6 @@ run
 set logging off
 quit
 </code></pre>
-
 <p>So what happens here? I turn pagination off so I don&rsquo;t have to
 press Enter for every page of gdb output. I declare that I want
 to log all the output of gdb in a file called <code>gdb.output</code>. Then
@@ -115,13 +103,11 @@ another breakpoint. Now that everything is set, I run the program
 and when that finishes, I stop logging the output and quit gdb.
 That&rsquo;s it! Now I can run gdb once and take a look at its output by
 opening <code>gdb.output</code>.</p>
-
 <p>By the way, if your program takes certain arguments you can pass
 them as arguments in gdb. For example, run
 <code>gdb --args ./a.out arg1 arg2 ...etc</code>. Another way is finding the
 line that you execute <code>run</code> on your script and change it to
 <code>run arg1 arg2 ...etc</code>.</p>
-
 <p>Most of the time though, you don&rsquo;t really need all this output.
 What if you needed to break in a function when a certain parameter
 of that function is passed a specific value? What if you needed to
@@ -133,7 +119,6 @@ variable <code>x</code> (which is in the same scope with the statement in line
 142) is bigger than 4. Finally I want to set a breakpoint in
 <code>function2</code> and I want gdb to break the first 3 times this function
 is executed.</p>
-
 <pre><code>set pagination off
 set logging file gdb.output
 set logging on
@@ -166,7 +151,6 @@ run
 set logging off
 quit
 </code></pre>
-
 <p>That&rsquo;s it! This is the end of this tutorial. In my
 humble opinion the above are more or less enough for
 programs of little to medium complexity. You can go
@@ -180,9 +164,7 @@ favourite program suddenly crashes and you can send a
 crash/bug report, attaching a simple backtrace and other
 gdb output that displays extra information will save a lot
 of time for the developers that will try to fix your problem.</p>
-
 <h3 id="some-final-notes">Some Final Notes</h3>
-
 <p>Before I finish this post, I just want to give a piece of
 advice when using gdb. If your program crashes for whatever
 reason and you have a rough idea where that happens, just
@@ -195,7 +177,6 @@ writing/editing scripts right away that target a bug you
 just found. You may actually spend more time writing a
 script to find a bug than actually stepping through your
 program in your head or using a debugger.</p>
-
 <p>I would also like to encourage writing more checker functions
 in your source code that check conditions (or print out debug
 info on the program output during development) than huge gdb
@@ -205,7 +186,6 @@ scripts too (see 2nd example script). Besides, checker function
 provide more flexible access to the internals of your program
 and they are written in the same language as the rest of your
 program.</p>
-
 <p><strong>EDIT</strong>: A big thanks to Nick Zivkovic for pointing out some
 mistakes in the initial version of this post.</p>
 
@@ -232,16 +212,14 @@ mistakes in the initial version of this post.</p>
 <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
 
 
-<script type="application/javascript">
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-SS5F7WT4HC"></script>
+<script>
 var doNotTrack = false;
 if (!doNotTrack) {
-	(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-	(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-	m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-	})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
-	ga('create', 'UA-78963448-1', 'auto');
-	
-	ga('send', 'pageview');
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){dataLayer.push(arguments);}
+	gtag('js', new Date());
+	gtag('config', 'G-SS5F7WT4HC', { 'anonymize_ip': false });
 }
 </script>
 

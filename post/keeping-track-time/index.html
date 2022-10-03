@@ -18,16 +18,12 @@
 			</div>
 		</h1>
    <div class="content">
-     
-
-<p>&ldquo;<em>Even simple-looking things can sometimes have a
+     <p>&ldquo;<em>Even simple-looking things can sometimes have a
 surprising twist in software. And everyone who thinks
 that programming dates is easy to get right the first
-time probably hasn&rsquo;t done much of it.</em>&rdquo; <br>
+time probably hasn&rsquo;t done much of it.</em>&rdquo; <!-- raw HTML omitted -->
 &ndash; Peter van der Linden (Expert C Programming)</p>
-
 <h3 id="main-problem-and-motivation">Main Problem and Motivation</h3>
-
 <p>Recently, a colleague of mine introduced me to <a href="http://www.worldtimebuddy.com/">World Time
 Buddy</a>, a convenient world
 clock and time zone converter used to schedule online
@@ -35,7 +31,6 @@ meetings. I liked the application and I decided that
 I would like to develop a clone of it that would work
 locally with no internet connection and output the specified
 time zone data as plain text in the command line.</p>
-
 <p>So I made a quick utility that does this exact thing
 (or at least I have some confidence that it does). The
 problem was that I did not know how
@@ -45,9 +40,7 @@ I was trying to think of all the different edge cases that
 can show up on my simple world clock and at the same time
 I was wondering if my computer can handle them all by
 default.</p>
-
 <h3 id="what-can-go-wrong">What Can Go Wrong</h3>
-
 <p>There are many timing problems that can show up within
 a single computer system (e.g., the RTC and the system
 clock drifting apart from each other). Fortunately,
@@ -57,7 +50,6 @@ unsure of was the following: how does one go about making
 an application that maps all (or at least most) locations
 to a time zone and a Daylight Saving Time (DST) schedule,
 if applicable, at any moment.</p>
-
 <p>As an example, let&rsquo;s consider a clock that shows the
 current time in Chicago(US) and Athens(Greece). Athens
 is 8 hours ahead of Chicago normally and both cities
@@ -70,7 +62,6 @@ turn them back at October 30th. This means that between
 March 13th and March 27th the time difference was 7
 hours instead of 8 and the same will happen again between
 October 30th and November 6th.</p>
-
 <p>After thinking of the above example, I wanted to search
 for other edge cases and get a better understanding of
 the challenges of building a world clock. It
@@ -84,13 +75,11 @@ all in the same time zone, some of them do not adhere
 to DST. As one reads more examples that differ in
 nature like the previous two, it becomes obvious
 that these &ldquo;irregularities&rdquo; are not edge cases but the rule.</p>
-
 <p>So the next question is the following: Even if we
 were to store all these information somewhere, how
 often would we have to change it? In other words,
 how often do the different areas around the globe
 decide to change their time policy?</p>
-
 <p>It turns out to be more often than most people think.
 To give an example, last year (2015) around 15 different
 places (countries or areas within countries) changed
@@ -99,9 +88,7 @@ for that year or &ldquo;more permanently&rdquo; for the years to
 come. Chile abolished DST while Turkey delayed its DST
 end time by two weeks and North Korea introduced its
 own time zone.</p>
-
 <h3 id="how-do-we-manage">How Do We Manage</h3>
-
 <p>Most operating systems today keep the system time as
 UTC and instead of having a single time zone set for
 the whole computer they allow the user to configure
@@ -114,7 +101,6 @@ countries and time zones. On my Linux machine this
 database exists in <code>/usr/share/zoneinfo/</code> and gets
 updated during my system updates by my distributions&rsquo;s
 updating mechanism/application.</p>
-
 <p>This local database with all the timezone information
 generally comes from the
 <a href="https://www.iana.org/time-zones">IANA time zone database</a>
@@ -127,15 +113,12 @@ different areas, but also the history of time changes
 from decades ago. This can be useful for applications
 that focus on exact duration of events rather than
 specific points in time.</p>
-
 <p>If your OS does not ship with any of those
 databases and has some other mechanism you can still
 develop applications that use them. Many programming
 languages in their attempt to be more portable,
 generally ship with a copy of IANA or similar.</p>
-
 <h3 id="final-note">Final Note</h3>
-
 <p>You can read more about IANA and the data of its data on its
 <a href="https://en.wikipedia.org/wiki/Tz_database">wiki page</a>
 or learn more about the procedures of adding and changing
@@ -144,7 +127,6 @@ time rules in it by reading the archives of its
 <a href="http://www.timeanddate.com/">TimeAndDate</a> is also a
 useful resource to keep track of the changes in time
 in the different areas.</p>
-
 <p>The utility mentioned in the introduction that I&rsquo;ve
 been trying to write is incredibly simple considering
 its requirements and therefore it suffices to
@@ -177,16 +159,14 @@ the pitfalls of keeping track of time in their software.</p>
 <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
 
 
-<script type="application/javascript">
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-SS5F7WT4HC"></script>
+<script>
 var doNotTrack = false;
 if (!doNotTrack) {
-	(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-	(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-	m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-	})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
-	ga('create', 'UA-78963448-1', 'auto');
-	
-	ga('send', 'pageview');
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){dataLayer.push(arguments);}
+	gtag('js', new Date());
+	gtag('config', 'G-SS5F7WT4HC', { 'anonymize_ip': false });
 }
 </script>
 
