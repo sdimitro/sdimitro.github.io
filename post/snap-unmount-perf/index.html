@@ -28,7 +28,7 @@ in the kernel.</p>
 <p>George Wilson jumped on the VM that the performance tests were running
 and was able to shed some light to the situation with the following
 flamegraph (interactive one can be found <a href="https://sdimitro.github.io/img/flame/gwilson_snap_unmount.svg">here</a>):</p>
-<!-- raw HTML omitted -->
+<img src="https://sdimitro.github.io/img/gwilson_snap_unmount.png" alt="flamegraph" width="900" height="500"/>
 <h3 id="analysis-and-fix">Analysis and Fix</h3>
 <p>From the above flamegraph we see that <code>zfs_unmount_snap</code> and its
 subsequent function calls dominate the portion of the time we spend
@@ -129,13 +129,13 @@ one snapshot. As I named all the snapshots the same, I just ran <code>zfs destro
 to destroy all of them at once. The flamegraph that I got from this was very
 similar to the one that George generated (original flamegraph can be found
 <a href="https://sdimitro.github.io/img/flame/sdimitro_snap_unmount.svg">here</a>):</p>
-<!-- raw HTML omitted -->
+<img src="https://sdimitro.github.io/img/sdimitro_snap_unmount2.png" alt="flamegraph" width="900" height="500"/>
 <p>We can see that there are some other code paths down that ioctl but
 <code>zfs_unmount_snap</code> still takes the majority of the time. After
 applying the fix mentioned at the end of the previous section, the
 results where the following (original flamegraph can be found
 <a href="https://sdimitro.github.io/img/flame/sdimitro_snap_unmount3.svg">here</a>):</p>
-<!-- raw HTML omitted -->
+<img src="https://sdimitro.github.io/img/sdimitro_snap_unmount3.png" alt="flamegraph" width="900" height="500"/>
 <p>The difference in the number of samples in <code>zfs_unmount_snap()</code> is dramatic
 (~2000 down to ~200 which is a 10x win). <code>dsl_destroy_snapshots_nvl</code> now
 completely dwarves <code>zfs_unmount_snap</code> in terms of sample count (1500 vs 200).
@@ -157,7 +157,7 @@ enforce uniqueness because it&rsquo;s implemented as a hash-table.</p>
 <p>After loosening up the uniqueness property of the nvlists used, I generated
 one final flamegraph (original flamegraph can be found
 <a href="https://sdimitro.github.io/img/flame/sdimitro_snap_unmount4.svg">here</a>):</p>
-<!-- raw HTML omitted -->
+<img src="https://sdimitro.github.io/img/sdimitro_snap_unmount4.png" alt="flamegraph" width="900" height="500"/>
 <p>The sample count of <code>zfs_ioc_destroy_snaps</code> itself has decreased to the order
 that of <code>zfs_unmount_snap</code> (3700 down to 200 samples).</p>
 <h3 id="fin">Fin</h3>

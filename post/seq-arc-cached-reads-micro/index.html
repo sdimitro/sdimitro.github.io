@@ -36,7 +36,8 @@ to cache their dbufs.</p>
 different runs, I decided to take some notes and share them as I believe this
 information can be of value to others.</p>
 <h2 id="the-flamegraph">The Flamegraph</h2>
-<!-- raw HTML omitted -->
+<img src="https://sdimitro.github.io/img/flame.png" alt="flamegraph" width="900" height="500"/>
+Interactive version can be found [here](/img/flame/sequential_arc_cached_reads/stock-1m-64.svg).
 <p>The bottom of the flamegraph indicates three things:</p>
 <ul>
 <li>The CPU is never idle.</li>
@@ -44,7 +45,7 @@ information can be of value to others.</p>
 <li>Some portion of the CPU time is spent on the dbuf-eviction thread. This part
 indicates how much time ZFS spends evicting dbufs.</li>
 </ul>
-<!-- raw HTML omitted -->
+<img src="https://sdimitro.github.io/img/zfs_read.png" alt="zfs_read" width="900" height="500"/>
 <p>Under <code>zfs_read()</code> time is spent in three places. The majority of the time is
 spent <code>dmu_buf_hold_array_by_dnode()</code> where we read the actual blocks from the
 ARC. Then there is <code>uiomove()</code>, which copies the data read into buffers that
@@ -52,7 +53,7 @@ will be eventually returned to the userspace. <code>uiomove()</code> is a good i
 of the work being done (the bigger the percent spent there, the more IOPS we
 get in general). Finally, there is a small amount of time spent releasing the
 buffers ZFS was holding.</p>
-<!-- raw HTML omitted -->
+<img src="https://sdimitro.github.io/img/reads.png" alt="reads" width="900" height="500"/>
 <p>Inside <code>dmu_buf_hold_array_by_dnode()</code> there are two paths that call into
 <code>dbuf_read()</code> to read buffers from the ARC. The one that is called directly
 from <code>dmu_buf_hold_array_by_dnode()</code> gets the data that will be copied by

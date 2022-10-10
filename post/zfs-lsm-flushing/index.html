@@ -39,7 +39,9 @@ levels of fragmentation. To give some background, each vdev in ZFS is divided in
 equal parts called metaslabs. ZFS represents each metaslab on-disk with a structure
 called a spacemap (an append-only log of allocations and frees) and in-memory with an
 AVL tree where each node represents a range of free space.</p>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/lsm_metaslab.png" width="50%" height="50%"/>
+</p>
 <p>Due to the copy-on-write nature of ZFS, fragmented pools with random-write workloads
 end up spending a lot of I/Os each TXG appending to the spacemap of each metaslab.
 Instead of doing that, a pool with the Log Spacemap feature enabled logs the
@@ -139,7 +141,12 @@ can get rid of log 1 and all of its blocks.</p>
 whenever the block limit is exceeded, keep flushing metaslabs until enough blocks
 are destroyed and the system is again below the limit.</p>
 <p>The problem with this approach is visible through the graphs below.</p>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/lsm_limit_problem.png" width="75%" height="50%"/>
+</p>
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/lsm_limit_problem2.png" width="75%" height="50%"/>
+</p>
 <p>These graphs are part from a larger experiment where we were simulating a pool with
 ~330 metaslabs (and therefore a block limit of about the same size). The issue here
 is that no flushing takes place until it is really late, and at that point the majority
@@ -207,7 +214,9 @@ but in terms of number of log spacemap blocks instead of log spacemaps, the answ
 of how many metaslabs we need to flush in order to get rid of 6 log spacemap blocks,
 is 2. If we wanted to get rid of 8 or 9 or 10 blocks, then we would need to flush 5
 metaslabs.</p>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/rsum_example.png" width="75%" height="50%"/>
+</p>
 <p>The more blocks we need to get rid of, the longer the iteration over the log
 history, over which we basically keep a running sum of the amount of log blocks
 that we can flush based on the running sum of metaslabs flushed over each log
@@ -223,11 +232,15 @@ the same number of metaslabs every TXG. Once that is done, the heuristic chooses
 the maximum number of flushes from all these estimates to be on the safe side.
 These projections exemplify how points [1] and [2] come into play.</p>
 <p>The following picture illustrates an example run of the algorithm.</p>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/rs_heuristic.png" width="100%" height="75%"/>
+</p>
 <p>Running a sample simulation of the algorithm in a hypothetical pool of 300
 metaslabs, with incoming blocks chosen randomly between 10 and 64 for a span of
 1000 TXGs (same setup as the Block Limit-Only heuristic), we see the following:</p>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/summary_flush_example.png" width="75%" height="70%"/>
+</p>
 <p>The maximum number of metaslabs ever flushed in a TXG was 24 and the average
 metaslabs flushed per TXG was 11. That&rsquo;s close to ~4% of the total number of
 metaslabs in the pool flushed each TXG on average (with the max being 8%).</p>
@@ -249,7 +262,9 @@ accuracy on our flushing estimates for a decrease in the runtime of the heuristi
 That said, trying out the algorithm with and without a summary in a simulation
 yield very similar results in flushing behavior. Below you can see the summary
 of the log history from the previous section.</p>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/log_summary.png" width="75%" height="50%"/>
+</p>
 <hr>
 <p>All of the above heuristics and their behavior were compared in simulations
 run in the following simulator:</p>
@@ -287,12 +302,16 @@ the entries in the whole spacemap log are obsolete. Thus, for every two entries 
 a metaslab in the log space map, only one of them is valid and actually makes it to
 the metaslab&rsquo;s space map. That gives us a factor of 2.</li>
 </ul>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/half_obsolete.png" width="75%" height="50%"/>
+</p>
 <ul>
 <li>Each entry in the log spacemap is guaranteed to be two words while entries in
 metaslab spacemaps are generally single-word. Which gives us another factor of 2.</li>
 </ul>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/single_vs_double.png" width="100%" height="75%"/>
+</p>
 <ul>
 <li>Even if [1] and [2] are slightly less than a factor of 2 each in reality, we
 haven&rsquo;t taken into account any consolidation of segments from the log spacemap to
@@ -300,7 +319,9 @@ the unflushed range trees nor their history (e.g. a segment being allocated, the
 freed, then allocated again means 3 log spacemap entries but 0 metaslab space map
 entries).</li>
 </ul>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/consolidation_example.png" width="50%" height="50%"/>
+</p>
 <p>The above assumptions are workload dependent. For example, we&rsquo;ve seen a factor of
 ~1.8 non-obsolete log space map entries per metaslab entry, which could make the
 case to set the default of the tunable to be 6 times the number of metaslabs. Again,
@@ -351,10 +372,14 @@ of fragmentation (both pools reached 91~92% fragmentation at their steady states
 The graphs display the userland IOPS reached by the pool per second. This is
 the most practical metric for such an experiment as more userland IOPS means more
 work done for your applications.</p>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/5_day_chart.png" width="100%" height="100%"/>
+</p>
 <p>The above graph verifies that the pools had reached their steady state (no
 fluctuations on IOPS). The graph below emphasizes the last 10 hours of the experiment:</p>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/10hr_chart.png" width="100%" height="100%"/>
+</p>
 <p>For those last 10 hours the average IOPS for the stock bits were ~596 IOPS. On
 the other hand, the pool with the log spacemap enabled had an average of ~837
 IOPS. For this experiment the log spacemap optimization gave a ~40.5% improvement
@@ -363,7 +388,12 @@ over the stock bits on a steady state under high fragmentation.</p>
 <p>Earlier while considering the limit to our block heuristic we made the assumption
 that half of the entries in the log are obsolete. For completeness, the graphs
 below verify this hypothesis under our experiment:</p>
-<!-- raw HTML omitted -->
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/obs_chart.png" width="100%" height="100%"/>
+</p>
+<p align="center">
+  <img src="https://sdimitro.github.io/img/lsm/obs_ratio_chart.png" width="80%" height="80%"/>
+</p>
 <p>As for consolidation (how many log spacemap segments do we have per metaslab
 spacemap segments), we found the ratio to be ~1.87, after sampling a few metaslabs.</p>
 <h4 id="-analysis-on-a-running-system">~ Analysis on a running system</h4>

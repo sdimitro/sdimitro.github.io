@@ -6,7 +6,16 @@
     <description>Recent content in Posts on Core Dump</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Thu, 04 Nov 2021 02:00:00 -0700</lastBuildDate><atom:link href="https://sdimitro.github.io/post/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 10 Oct 2022 12:00:00 -0600</lastBuildDate><atom:link href="https://sdimitro.github.io/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Perf Experiment Fail [μ]</title>
+      <link>https://sdimitro.github.io/post/perf-eval-fail/</link>
+      <pubDate>Mon, 10 Oct 2022 12:00:00 -0600</pubDate>
+      
+      <guid>https://sdimitro.github.io/post/perf-eval-fail/</guid>
+      <description>A recent customer incident reminded me of a funny mistake that I made 4 years ago while conducting a performance experiment. I had 2 virtual machines on VMware ESX, each backed by one virtual disk, that I was running a specific workload of random writes. One of the VMs had stock bits while the other had my custom bits which I expected to outperform the first one in terms of IOPS.</description>
+    </item>
+    
     <item>
       <title>Bonwick&#39;s ZFS Blog Posts [Mirror]</title>
       <link>https://sdimitro.github.io/post/bonwick-posts/</link>
