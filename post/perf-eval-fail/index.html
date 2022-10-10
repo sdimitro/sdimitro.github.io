@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<title>Perf Experiment Fail [μ] | Core Dump</title>
+	<link href="https://fonts.googleapis.com/css?family=Libre+Baskerville" rel="stylesheet"> 
+	<link href="https://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet"> 
+	<link rel="stylesheet" href="https://sdimitro.github.io/css/style.css">
+
+<div class="header">
+	<h3><a href="https://sdimitro.github.io">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>Perf Experiment Fail [μ]
+			<div class="normal">
+				<div class="when"> Posted on October 10, 2022.</div>
+			</div>
+		</h1>
+   <div class="content">
+     <p>A recent customer incident reminded me of a funny mistake that I made 4 years
+ago while conducting a performance experiment. I had 2 virtual machines on
+VMware ESX, each backed by one virtual disk, that I was running a specific
+workload of random writes. One of the VMs had stock bits while the other had my
+custom bits which I expected to outperform the first one in terms of IOPS.
+After capturing some IOPS data from both machines and plotting them on a
+spreadsheet, the following IOPS graph was rendered:</p>
+<p align="center">
+  <img src="https://sdimitro.github.io/img/perf_setup_fail.png" width="50%" height="50%"/>
+</p>
+<p>Thinking that this is probably some anomaly in my initial measurement, I
+continued gathering data from the VMs but the above pattern continued. When the
+first VM was doing well the other one would experience performance degradation,
+and vice versa. After looking at the data in more detail I was surprised to see
+that the sum of IOPS of the two VMs at any given moment would stay about the
+same. What is more, their graph lines would look like a mirror image of each
+other if you placed an imaginary mirror in the middle of the y-axis.</p>
+<p>If you’ve already guessed what the issue was, then kudos to you. Basically, I
+had to look back at my setup and realize that both of the virtual disks were
+carved out of the same physical drive in the VMware level and the workload of
+one VM was affecting the other, and vice versa. Oops :)</p>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io""Perf Experiment Fail [μ]";
+	   this.page.identifier = "Perf Experiment Fail [μ]";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-SS5F7WT4HC"></script>
+<script>
+var doNotTrack = false;
+if (!doNotTrack) {
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){dataLayer.push(arguments);}
+	gtag('js', new Date());
+	gtag('config', 'G-SS5F7WT4HC', { 'anonymize_ip': false });
+}
+</script>
+
+

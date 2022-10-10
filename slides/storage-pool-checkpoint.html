@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>Storage Pool Checkpoint</title>
+    
+    <script>
+      var notesEnabled =  false ;
+    </script>
+    <script src="/js/slides.js"></script>
+  <meta name="viewport" content="width=device-width,height=device-height,initial-scale=1"><meta name="apple-mobile-web-app-capable" content="yes"></head>
+
+  <body style="display: none" class="loaded">
+
+    <section class="slides layout-widescreen">
+
+      <article class="current">
+        <h1>Storage Pool Checkpoint</h1>
+        
+        <h3>25 October 2017</h3>
+        
+          <div class="presenter">
+            
+  
+  <p>
+    Serapheim Dimitropoulos
+  </p>
+  
+
+  
+  <p>
+    Delphix
+  </p>
+  
+
+          </div>
+        
+          <div class="presenter">
+            
+  
+  <p>
+    
+  </p>
+  
+
+          </div>
+        
+      </article>
+
+  
+  
+      <article class="next">
+      
+        <h3>Timeline</h3>
+        
+<div class="image">
+  <img src="/img/Checkpoint_Timeline.png">
+</div>
+
+  <ul>
+  
+    <li>Started with Dan Kimmel at last year's hackathon</li>
+  
+    <li>Redesigned from scratch later that year</li>
+  
+    <li>Pushed in product last spring and soaking since then</li>
+  
+  </ul>
+
+  
+  <p>
+    Can only be upstreamed after Device Removal. Help us get there :-)
+  </p>
+  
+
+      
+      </article>
+  
+  
+  
+      <article class="far-next">
+      
+        <h2>Motivation</h2>
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>Motivation</h3>
+        
+  
+  <p>
+    Upgrading a Delphix Engine
+  </p>
+  
+
+  <ul>
+  
+    <li>Reboot to new OS version</li>
+  
+    <li>Run several upgrade scripts</li>
+  
+  </ul>
+
+  
+  <p>
+    Each upgrade script
+  </p>
+  
+
+  <ul>
+  
+    <li>Manipulates ZFS datasets and their properties</li>
+  
+    <li>Has a respective rollback script in case it fails</li>
+  
+  </ul>
+
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>Motivation</h3>
+        
+  
+  <p>
+    Problems with rollback scripts
+  </p>
+  
+
+  <ul>
+  
+    <li>Tedious &amp; time-consuming to write</li>
+  
+    <li>but most importantly, error-prone</li>
+  
+  </ul>
+
+  
+  <p>
+    The main problem with our rollback
+  </p>
+  
+
+  <ul>
+  
+    <li>Upgrade scripts manipulate datasets (not files!) </li>
+  
+    <li>Thus, taking a regular snapshot and rolling back is not possible</li>
+  
+  </ul>
+
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h2>Storage Pool Checkpoint</h2>
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>Storage Pool Checkpoint</h3>
+        
+  
+  <p>
+    A <i>"pool-wide"</i> snapshot!
+  </p>
+  
+
+  <ul>
+  
+    <li>Remembers the entire state of the pool at a point in time</li>
+  
+    <li>Users can rewind back to it later or discard it</li>
+  
+  </ul>
+
+  
+  <p>
+    Like a snapshot
+  </p>
+  
+
+  <ul>
+  
+    <li>creating a checkpoint is almost instantenuous</li>
+  
+    <li>its space comnsumption consists only of references to old data</li>
+  
+  </ul>
+
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>Delphix Use Case</h3>
+        
+  
+  <p>
+    New workflow:
+  </p>
+  
+
+  <ul>
+  
+    <li>Take a checkpoint</li>
+  
+    <li>Run upgrade scripts</li>
+  
+    <li>If a script fails rewind to checkpoint</li>
+  
+    <li>Else discard it when upgrade is done</li>
+  
+  </ul>
+
+  
+  <p>
+    <b>No</b> <b>need</b> <b>for</b> <b>rollback</b> <b>scripts!</b>
+  </p>
+  
+
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h2>High-Level Internals</h2>
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>High-Level Internals</h3>
+        
+<div class="image">
+  <img src="/img/Uberblock.png">
+</div>
+
+  
+  <p>
+    Uberblock - The block that references all the state of a pool
+  </p>
+  
+
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>High-Level Internals</h3>
+        
+  
+  <p>
+    ZFS uses logical timestamps to represent time called <b>Transaction</b> <b>Groups</b> (aka <b>TXGs</b>)
+  </p>
+  
+
+  
+  <p>
+    In each TXG:
+  </p>
+  
+
+  <ul>
+  
+    <li>We accumulate changes</li>
+  
+    <li>We write a new uberblock that references those changes</li>
+  
+  </ul>
+
+  
+  <p>
+    All blocks in ZFS have a <b>birth</b> <b>time</b> equal to the TXG that they were created
+  </p>
+  
+
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>High-Level Internals</h3>
+        
+<div class="image">
+  <img src="/img/New_Uberblock.png">
+</div>
+
+  
+  <p>
+    ZFS CoW Nature
+  </p>
+  
+
+  
+  <p>
+    New uberblock references new blocks plus blocks from older uberblocks
+  </p>
+  
+
+  
+  <p>
+    As time passes and we are writing to disk, blocks that are not referenced are reused
+  </p>
+  
+
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>High-Level Internals</h3>
+        
+  
+  <p>
+    <b>Checkpoint</b> <b>Pool</b>
+<br>
+
+    Save the current (at the time) uberblock
+  </p>
+  
+
+  
+  <p>
+    <b>Rewind</b> <b>to</b> <b>Checkpoint</b>
+<br>
+
+    Place saved uberblock back as the current uberblock
+  </p>
+  
+
+  
+  <p>
+    <b>Discard</b> <b>Checkpoint</b>
+<br>
+
+    Get rid of the saved uberblock
+  </p>
+  
+
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>High-Level Internals</h3>
+        
+  
+  <p>
+    <b>Problem</b>
+  </p>
+  
+
+  
+  <p>
+    Blocks that are referenced by the checkpointed uberblock but not the current one.
+<br>
+
+    They may be marked for reuse and get overwritten!
+  </p>
+  
+
+  
+  <p>
+    <b>Solution</b>
+  </p>
+  
+
+  
+  <p>
+    Look at block's birth TXG:
+  </p>
+  
+
+  <ul>
+  
+    <li>if it was born after the checkpoint mark it for reuse.</li>
+  
+    <li>else keep the block marked as allocated and save its location on a log on-disk.</li>
+  
+  </ul>
+
+  
+  <p>
+    This way:
+  </p>
+  
+
+  <ul>
+  
+    <li>checkpointed blocks don't get reused</li>
+  
+    <li>when the checkpoint is discarded we go through our on-disk log marking everything as free</li>
+  
+  </ul>
+
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h2>Usage</h2>
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>Cheatsheet</h3>
+        
+  
+  <div class="code"><pre># Take checkpoint
+$ zpool checkpoint &lt;pool&gt;
+
+# Preview checkpointed state
+$ zpool import -o readonly=on --rewind-to-checkpoint &lt;pool&gt;
+
+# Rewird to the checkpoint
+$ zpool import --rewind-to-checkpoint &lt;pool&gt;
+
+# Discard the checkpoint
+$ zpool checkpoint --discard &lt;pool&gt;
+
+# Check when the checkpoint was taken
+$ zpool status
+
+# Check the space usage of the checkpoint
+$ zpool list</pre></div>
+  
+
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h2>Demo</h2>
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>Caveats</h3>
+        
+  
+  <p>
+    When there is a checkpoint:
+  </p>
+  
+
+  
+  <p>
+    1] Operations changing the vdev configuration (e.g. device removal) are not allowed
+  </p>
+  
+
+  
+  <p>
+    2] Reservations may be unenforceable
+  </p>
+  
+
+  
+  <p>
+    3] <code>zpool</code> <code>scrub</code> may not scrub your checkpointed data (yet?)
+  </p>
+  
+
+  
+  <p>
+    As a general rule, always be sure to know exactly what you are reverting to
+  </p>
+  
+
+      
+      </article>
+  
+  
+  
+      <article>
+      
+        <h3>Resources &amp; Updates</h3>
+        <p class="link"><a href="https://sdimitro.github.io/post/zpool-checkpoint/" target="_blank">Introductory Blogpost</a></p><p class="link"><a href="https://openzfs.slack.com/" target="_blank">Slack #OpenZFS</a></p><p class="link"><a href="https://twitter.com/OpenZFS" target="_blank">Tweet @OpenZFS</a></p>
+  
+  <p>
+    And once upstreamed, good old <code>man</code> <code>zpool</code> :-)
+  </p>
+  
+
+      
+      </article>
+  
+  
+
+      <article>
+        <h3>Thank you</h3>
+        
+          <div class="presenter">
+            
+  
+  <p>
+    Serapheim Dimitropoulos
+  </p>
+  
+
+  
+  <p>
+    Delphix
+  </p>
+  
+<p class="link"><a href="mailto:serapheim@delphix.com" target="_blank">serapheim@delphix.com</a></p><p class="link"><a href="https://sdimitro.github.io/" target="_blank">https://sdimitro.github.io/</a></p><p class="link"><a href="http://twitter.com/AmazingDim" target="_blank">@AmazingDim</a></p>
+          </div>
+        
+          <div class="presenter">
+            
+  
+  <p>
+    
+  </p>
+  
+
+          </div>
+        
+      </article>
+
+    <div class="slide-area" id="prev-slide-area"></div><div class="slide-area" id="next-slide-area"></div></section>
+
+    <div id="help" style="display: none;">
+      Use the left and right arrow keys or click the left and right
+      edges of the page to navigate between slides.<br>
+      (Press 'H' or navigate to hide this message.)
+    </div>
+
+    
+    <script src="/js/play.js"></script>
+<link rel="stylesheet" type="text/css" href="/css/slides.css">
+<link rel="stylesheet" type="text/css" href="/css/slides-styles.css"></body></html>
