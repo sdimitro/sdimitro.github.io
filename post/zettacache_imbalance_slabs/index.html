@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en-us">
+	<meta charset="UTF-8">
+	<title>ZettaCache Disk I/O Imbalance Bug | Core Dump</title>
+	<link href="https://fonts.googleapis.com/css?family=Libre+Baskerville" rel="stylesheet"> 
+	<link href="https://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet"> 
+	<link rel="stylesheet" href="https://sdimitro.github.io/css/style.css">
+
+<div class="header">
+	<h3><a href="https://sdimitro.github.io">Core Dump</a></h3>
+</div>
+
+<div class="main">
+	<div class="article">
+		<h1>ZettaCache Disk I/O Imbalance Bug
+			<div class="normal">
+				<div class="when"> Posted on January 6, 2023.</div>
+			</div>
+		</h1>
+   <div class="content">
+     <h3 id="-customer-issue">~ Customer Issue</h3>
+<p>In a recent customer escalation we analyzed a system with major write
+imbalances among its zettacache drives. Specifically, most writes would hammer
+on one disk, out of the four, for a few minutes and then move on to some other
+disk to do the same. This resulted in the system not utilizing all of its
+available bandwidth and hurting overall performance of its zettacache data
+ingestion. Upon further investigation we discovered that their workload
+consisted almost exclusively of 8KB random writes. Random writes are a common
+workload for us as many of our customers use Delphix with standard relational
+databases. The size of those writes being 8KB consistently was unusual though
+because ZFS compression was enabled so we&rsquo;d expect these block sizes to be
+distributed from ~2KB to ~7KB in practice. It turned out that these blocks
+wouldn&rsquo;t compress well because the customer would encrypt them before they&rsquo;d
+reach ZFS.</p>
+<h3 id="-reproducing-the-problem">~ Reproducing The Problem</h3>
+<p>I was able to reproduce the issue in-house using an r5n_8xlarge instance on
+AWS.  According to Amazon (<a href="https://aws.amazon.com/ec2/instance-types/r5/">1</a>)
+these instances have 6,800Mbps (~850MB/s) of EBS bandwidth, so I used three
+50GB gp3 low-perf volumes (<a href="https://aws.amazon.com/ebs/volume-types/">2</a>). Each
+of these disks would give me ~250MB/s; a total of ~750MB/s which is below the
+850MB/s bandwidth limit. I created a ZFS dataset with 8K record size and
+disabled compression. I then ran a sequential randwritecomp
+(<a href="https://github.com/openzfs/zfs/blob/master/tests/zfs-tests/cmd/file/randwritecomp.c">3</a>)
+workload which was enough to reproduce the issue.*</p>
+<p>Here is a graphical representation of the data ingested to the zettacache over
+time for each disk (gathered with <code>zcache iostat -ad 2</code> over the course of 30
+mins):</p>
+<p align="center">
+  <img src="https://sdimitro.github.io/img/zcache_slab_before_0.png" width="90%" height="90%"/>
+</p>
+<p>From the above graph it is easy to see that each disk takes turns maxing out
+its bandwidth with little or no work done by the other disks during that time.
+During that 30 min span, 218.54GB of data was ingested in the zettacache.</p>
+<h3 id="--a-hypothesis">~  A Hypothesis</h3>
+<p>The customer&rsquo;s workload being writes made Matt guess that the issue lied in the
+block allocation code nad upon further investigation he was right. In the block
+allocator, we segregate allocations by block size to allocation buckets. Within
+a bucket we have a set of slabs that we allocate from sorted by their free
+space (e.g. we first allocate from the most free slab, then we move to the next
+one, etc..). Here is the related code definitions:</p>
+<pre tabindex="0"><code>#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct SlabBucketEntry {
+    allocated_space: u64,
+    slab_id: SlabId,
+}
+
+struct SlabBucket {
+    ...
+    by_freeness: BTreeSet&lt;SlabBucketEntry&gt;,
+    ...
+}
+</code></pre><p>Using Rust&rsquo;s <code>Ord trait</code> in the <code>derive macro</code> above <code>SlabBucketEntry</code>, we
+declare that entries are first sorted by <code>allocated_space</code>** and then by
+<code>slab_id</code>.  Interestingly slab IDs are naturally assigned by strictly
+increasing order to device IDs that are also increasing in the same fashion;
+e.g. device 0 contains slabs 0 to 99, device 1 contains slabs 100 to 149, etc..
+(an exception to this rule are scenarios involving device expansions). This
+means that if all slabs had the same amount of free space they would be sorted
+by slab ID and by extension device ID. In turn this would mean that in the
+beginning of each transaction, allocations would mostly happen from a specific
+device untils its slabs fill up and we move to the next one.</p>
+<h3 id="-hypothesis-verification--the-workaround">~ Hypothesis Verification &amp; The Workaround</h3>
+<p>Using <code>zcachedb slabs</code> (the equivalent of <code>zdb -mmm</code> for the ZettaCache) on my
+system I was able to verify that our hypothesis was correct. I also verified
+that this was the case in the customer&rsquo;s system by looking at the support
+bundle of the case. Since the block allocator doesn&rsquo;t have any type of device
+throttling nor other I/O balancing mechanism currently we decided on the
+following two-line work around:</p>
+<pre tabindex="0"><code>#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct SlabBucketEntry {
+    allocated_space: u64,
+
++    // This field is added to randomize the order of slabs that have the same amount of allocated
++    // space within a bucket. Without this field, slabs may end up being sorted by slab ID which
++    // in most cases means sorted by device ID. This could lead to issues like I/O imbalances
++    // between multiple disks that can affect performance.
++    discriminant: u16,
+
+    slab_id: SlabId,
+}
+...
+
+    fn to_slab_bucket_entry(&amp;self) -&gt; SlabBucketEntry {
+        SlabBucketEntry {
+            allocated_space: self.allocated_space(),
++            discriminant: thread_rng().gen(),
+            slab_id: self.id,
+        }
+    }
+</code></pre><p>In the unfortunate case that the above diff didn&rsquo;t make it clear, we ended up
+adding a discriminant to the struct; an extra field with a random value that
+will randomize the order of the slabs. Here is the same graphical
+representation from earlier after rerunning my experiment with the new code:</p>
+<p align="center">
+  <img src="https://sdimitro.github.io/img/zcache_slab_after_0.png" width="90%" height="90%"/>
+</p>
+<p>We now see that the situation is resolved with all the disks satisfying I/O
+request at all times. During the last 30 mins of this experiment 480GB of
+data were ingested in the zettacache. That&rsquo;s a 2.2x speedup for zettacache
+ingestion with 3 disks.</p>
+<h4 id="-appendix-notes">~ Appendix: Notes</h4>
+<p>* In reality, I also had to set the following tunables because my cache would
+have almost no space left and we&rsquo;d drop allocations until a checkpoint would
+come and free up space:</p>
+<pre tabindex="0"><code>$ cat settings.toml
+checkpoint_interval = &#34;5 seconds&#34;
+target_free_blocks_pct = 20.0
+</code></pre><p>** Sorting by <code>allocated_space</code> (from min to max) is the same as sorting by
+<code>free_space</code> (max to min) as all slabs are equally sized with a constant total
+space and <code>total space = allocated_space + free_space</code>.</p>
+
+   </div>
+	</div>
+</div>
+<div id="disqus_thread"></div>
+<script>
+
+
+   var disqus_config = function () {
+	   this.page.url = "https://sdimitro.github.io""ZettaCache Disk I/O Imbalance Bug";
+	   this.page.identifier = "ZettaCache Disk I/O Imbalance Bug";
+   };
+(function() { 
+	if (window.location.hostname == "localhost")
+		return;
+	var d = document, s = d.createElement('script');
+	s.src = '//sdimitro-github-com.disqus.com/embed.js';
+	s.setAttribute('data-timestamp', +new Date());
+	(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-SS5F7WT4HC"></script>
+<script>
+var doNotTrack = false;
+if (!doNotTrack) {
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){dataLayer.push(arguments);}
+	gtag('js', new Date());
+	gtag('config', 'G-SS5F7WT4HC', { 'anonymize_ip': false });
+}
+</script>
+
+

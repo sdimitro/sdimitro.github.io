@@ -6,7 +6,16 @@
     <description>Recent content on Core Dump</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Mon, 10 Oct 2022 12:00:00 -0600</lastBuildDate><atom:link href="https://sdimitro.github.io/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Fri, 06 Jan 2023 12:00:00 -0600</lastBuildDate><atom:link href="https://sdimitro.github.io/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>ZettaCache Disk I/O Imbalance Bug</title>
+      <link>https://sdimitro.github.io/post/zettacache_imbalance_slabs/</link>
+      <pubDate>Fri, 06 Jan 2023 12:00:00 -0600</pubDate>
+      
+      <guid>https://sdimitro.github.io/post/zettacache_imbalance_slabs/</guid>
+      <description>~ Customer Issue In a recent customer escalation we analyzed a system with major write imbalances among its zettacache drives. Specifically, most writes would hammer on one disk, out of the four, for a few minutes and then move on to some other disk to do the same. This resulted in the system not utilizing all of its available bandwidth and hurting overall performance of its zettacache data ingestion. Upon further investigation we discovered that their workload consisted almost exclusively of 8KB random writes.</description>
+    </item>
+    
     <item>
       <title>Perf Experiment Fail [μ]</title>
       <link>https://sdimitro.github.io/post/perf-eval-fail/</link>

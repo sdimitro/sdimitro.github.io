@@ -3,12 +3,15 @@
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
     <loc>https://sdimitro.github.io/</loc>
-    <lastmod>2022-10-10T12:00:00-06:00</lastmod>
-  </url><url>
-    <loc>https://sdimitro.github.io/post/perf-eval-fail/</loc>
-    <lastmod>2022-10-10T12:00:00-06:00</lastmod>
+    <lastmod>2023-01-06T12:00:00-06:00</lastmod>
   </url><url>
     <loc>https://sdimitro.github.io/post/</loc>
+    <lastmod>2023-01-06T12:00:00-06:00</lastmod>
+  </url><url>
+    <loc>https://sdimitro.github.io/post/zettacache_imbalance_slabs/</loc>
+    <lastmod>2023-01-06T12:00:00-06:00</lastmod>
+  </url><url>
+    <loc>https://sdimitro.github.io/post/perf-eval-fail/</loc>
     <lastmod>2022-10-10T12:00:00-06:00</lastmod>
   </url><url>
     <loc>https://sdimitro.github.io/post/bonwick-posts/</loc>
